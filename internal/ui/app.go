@@ -125,7 +125,7 @@ func (m *Model) updateNavigation(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			item := m.items[m.cursor]
 			if item.Kind == "session" {
 				db.DeleteSession(m.conn, item.Session.ID)
-			} else if item.Kind == "group" && item.Group.Path != "my-sessions" {
+			} else if item.Kind == "group" && item.Group.Path != defaultGroupPath {
 				db.DeleteGroup(m.conn, item.Group.Path)
 			}
 			m.Reload()
