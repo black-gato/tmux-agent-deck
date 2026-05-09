@@ -28,8 +28,12 @@ var sessionStartCmd = &cobra.Command{
 		if err := tc.NewSession(tmuxName, s.ProjectPath, startCmd); err != nil {
 			return fmt.Errorf("start tmux session: %w", err)
 		}
-		db.UpdateSessionTmuxName(rootDB, s.ID, tmuxName)
-		db.UpdateSessionStatus(rootDB, s.ID, "waiting")
+		if err := db.UpdateSessionTmuxName(rootDB, s.ID, tmuxName); err != nil {
+			fmt.Fprintf(cmd.ErrOrStderr(), "warning: update tmux name: %v\n", err)
+		}
+		if err := db.UpdateSessionStatus(rootDB, s.ID, "waiting"); err != nil {
+			fmt.Fprintf(cmd.ErrOrStderr(), "warning: update status: %v\n", err)
+		}
 		fmt.Fprintf(cmd.OutOrStdout(), "Started %q as tmux session %q\n", s.Title, tmuxName)
 		return nil
 	},
@@ -46,9 +50,13 @@ var sessionStopCmd = &cobra.Command{
 		}
 		if s.TmuxSession != "" {
 			tc := tmux.NewClient()
-			tc.KillSession(s.TmuxSession)
+			if err := tc.KillSession(s.TmuxSession); err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "warning: kill session: %v\n", err)
+			}
 		}
-		db.UpdateSessionStatus(rootDB, s.ID, "stopped")
+		if err := db.UpdateSessionStatus(rootDB, s.ID, "stopped"); err != nil {
+			return fmt.Errorf("update status: %w", err)
+		}
 		fmt.Fprintf(cmd.OutOrStdout(), "Stopped %q\n", s.Title)
 		return nil
 	},

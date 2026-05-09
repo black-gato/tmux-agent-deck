@@ -52,6 +52,8 @@ func openDB() (*sql.DB, error) {
 			return nil, err
 		}
 		path = filepath.Join(home, ".tmux-agent-deck", "state.db")
+	}
+	if path != ":memory:" {
 		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 			return nil, fmt.Errorf("create db dir: %w", err)
 		}
