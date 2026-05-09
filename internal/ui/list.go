@@ -76,28 +76,61 @@ func appendGroupItems(g db.Group, allGroups []db.Group, sessionsByGroup map[stri
 func RenderList(items []ListItem, cursor, width, height int) string {
 	var sb strings.Builder
 	sb.WriteString("tmux-agent-deck\n\n")
-	for i, item := range items {
+
+	// Viewport: show a window of items centered around cursor
+	start := 0
+	end := len(items)
+	if height > 4 {
+		viewHeight := height - 4 // reserve header (2) and footer (2) lines
+		if viewHeight > 0 && len(items) > viewHeight {
+			start = cursor - viewHeight/2
+			if start < 0 {
+				start = 0
+			}
+			end = start + viewHeight
+			if end > len(items) {
+				end = len(items)
+				start = end - viewHeight
+				if start < 0 {
+					start = 0
+				}
+			}
+		}
+	}
+
+	for i := start; i < end; i++ {
+		item := items[i]
 		indent := strings.Repeat("  ", item.Depth)
+		selected := i == cursor
+
 		var line string
 		if item.Kind == "group" {
 			arrow := "▼"
 			if !item.Group.Expanded {
 				arrow = "►"
 			}
-			line = groupStyle.Render(fmt.Sprintf("%s%s %s", indent, arrow, item.Group.Name))
+			raw := fmt.Sprintf("%s%s %s", indent, arrow, item.Group.Name)
+			if selected {
+				line = selectedStyle.Render(raw)
+			} else {
+				line = groupStyle.Render(raw)
+			}
 		} else {
 			sym := statusSymbol[item.Session.Status]
 			if sym == "" {
 				sym = "—"
 			}
-			toolStr := dimStyle.Render(item.Session.Tool)
-			line = fmt.Sprintf("%s%s  %-20s %s", indent, sym, item.Session.Title, toolStr)
-		}
-		if i == cursor {
-			line = selectedStyle.Render("> " + strings.TrimLeft(line, " "))
+			if selected {
+				raw := fmt.Sprintf("%s%s  %s  %s", indent, sym, item.Session.Title, item.Session.Tool)
+				line = selectedStyle.Render(raw)
+			} else {
+				toolStr := dimStyle.Render(item.Session.Tool)
+				line = fmt.Sprintf("%s%s  %-20s %s", indent, sym, item.Session.Title, toolStr)
+			}
 		}
 		sb.WriteString(line + "\n")
 	}
+
 	sb.WriteString("\n[n]ew  [g]roup  [m]ove  [r]ename  [d]elete  [q]uit")
 	return sb.String()
 }
