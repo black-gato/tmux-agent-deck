@@ -71,11 +71,15 @@ func runCmd(name string, args ...string) error {
 }
 
 func cmdOutput(name string, args ...string) ([]byte, error) {
-	var buf bytes.Buffer
+	var stdout, stderr bytes.Buffer
 	cmd := exec.Command(name, args...)
-	cmd.Stdout = &buf
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
+		if msg := strings.TrimSpace(stderr.String()); msg != "" {
+			return nil, fmt.Errorf("%w: %s", err, msg)
+		}
 		return nil, err
 	}
-	return buf.Bytes(), nil
+	return stdout.Bytes(), nil
 }
