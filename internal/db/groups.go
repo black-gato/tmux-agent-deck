@@ -3,6 +3,7 @@ package db
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 )
 
 type Group struct {
@@ -55,11 +56,12 @@ func ListGroups(conn *sql.DB) ([]Group, error) {
 
 // ChildGroups returns direct children of parentPath (one level deep only).
 func ChildGroups(conn *sql.DB, parentPath string) ([]Group, error) {
-	prefix := parentPath + "/%"
-	deeperPrefix := parentPath + "/%/%"
+	escaped := strings.NewReplacer("%", `\%`, "_", `\_`).Replace(parentPath)
+	prefix := escaped + "/%"
+	deeperPrefix := escaped + "/%/%"
 	rows, err := conn.Query(
 		`SELECT path, name, default_path, default_tool, expanded, sort_order
-		 FROM groups WHERE path LIKE ? AND path NOT LIKE ?
+		 FROM groups WHERE path LIKE ? ESCAPE '\' AND path NOT LIKE ? ESCAPE '\'
 		 ORDER BY sort_order, path`,
 		prefix, deeperPrefix,
 	)
@@ -75,13 +77,27 @@ func SetGroupExpanded(conn *sql.DB, path string, expanded bool) error {
 	if expanded {
 		v = 1
 	}
-	_, err := conn.Exec(`UPDATE groups SET expanded = ? WHERE path = ?`, v, path)
-	return err
+	res, err := conn.Exec(`UPDATE groups SET expanded = ? WHERE path = ?`, v, path)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("set expanded %q: %w", path, sql.ErrNoRows)
+	}
+	return nil
 }
 
 func RenameGroup(conn *sql.DB, path, newName string) error {
-	_, err := conn.Exec(`UPDATE groups SET name = ? WHERE path = ?`, newName, path)
-	return err
+	res, err := conn.Exec(`UPDATE groups SET name = ? WHERE path = ?`, newName, path)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("rename group %q: %w", path, sql.ErrNoRows)
+	}
+	return nil
 }
 
 func DeleteGroup(conn *sql.DB, path string) error {
@@ -90,7 +106,7 @@ func DeleteGroup(conn *sql.DB, path string) error {
 }
 
 func scanGroups(rows *sql.Rows) ([]Group, error) {
-	var groups []Group
+	groups := []Group{}
 	for rows.Next() {
 		var g Group
 		var expanded int
