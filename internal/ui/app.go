@@ -2,6 +2,7 @@ package ui
 
 import (
 	"database/sql"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/black-gato/tmux-agent-deck/internal/db"
@@ -23,6 +24,7 @@ type Model struct {
 	height   int
 	mode     string // "", "new-session", "new-group", "rename", "move"
 	dialog   dialogState
+	err      error
 }
 
 func NewModel(conn *sql.DB, tc *tmux.Client, poller *state.Poller) *Model {
@@ -52,14 +54,18 @@ func (m *Model) Cursor() int       { return m.cursor }
 func (m *Model) Mode() string      { return m.mode }
 
 func (m *Model) Init() tea.Cmd {
-	m.Reload()
+	if err := m.Reload(); err != nil {
+		m.err = err
+	}
 	return tick()
 }
 
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tickMsg:
-		m.Reload()
+		if err := m.Reload(); err != nil {
+			m.err = err
+		}
 		return m, tick()
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -134,6 +140,9 @@ func (m *Model) updateNavigation(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) View() string {
+	if m.err != nil {
+		return "error: " + m.err.Error()
+	}
 	if m.mode != "" {
 		return m.renderDialog()
 	}
@@ -141,5 +150,8 @@ func (m *Model) View() string {
 }
 
 func tick() tea.Cmd {
-	return func() tea.Msg { return tickMsg{} }
+	return func() tea.Msg {
+		time.Sleep(time.Second)
+		return tickMsg{}
+	}
 }

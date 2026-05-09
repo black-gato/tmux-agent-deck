@@ -7,7 +7,6 @@ var keyTypeMap = map[tea.KeyType]string{
 	tea.KeyDown:  "down",
 	tea.KeyEnter: "attach",
 	tea.KeySpace: "toggle",
-	tea.KeyEsc:   "esc",
 }
 
 var runeMap = map[rune]string{

@@ -16,6 +16,9 @@ func BuildTree(groups []db.Group, sessions []db.Session) []ListItem {
 	for i := range groups {
 		g := groups[i]
 		items = append(items, ListItem{Kind: "group", Group: &g, Depth: 0})
+		if !g.Expanded {
+			continue
+		}
 		for j := range sessions {
 			if sessions[j].GroupPath == g.Path {
 				s := sessions[j]
