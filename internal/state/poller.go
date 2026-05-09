@@ -59,19 +59,24 @@ func (p *Poller) PollOnce() {
 	}
 	for _, s := range sessions {
 		if s.Status == tmux.StatusStopped || s.TmuxSession == "" {
+			delete(p.lastChange, s.ID)
 			continue
 		}
 		exists, err := p.tmux.SessionExists(s.TmuxSession)
 		if err != nil {
+			log.Printf("poller: session exists %q: %v", s.TmuxSession, err)
 			continue
 		}
 		if !exists {
-			db.UpdateSessionStatus(p.conn, s.ID, tmux.StatusError)
+			if err := db.UpdateSessionStatus(p.conn, s.ID, tmux.StatusError); err != nil {
+				log.Printf("poller: update status error %q: %v", s.ID, err)
+			}
 			delete(p.lastChange, s.ID)
 			continue
 		}
 		out, err := p.tmux.CapturePaneOutput(s.TmuxSession)
 		if err != nil {
+			log.Printf("poller: capture pane %q: %v", s.TmuxSession, err)
 			continue
 		}
 
@@ -84,7 +89,9 @@ func (p *Poller) PollOnce() {
 		newStatus := tmux.DetectStatus(out, lc)
 		if newStatus != s.Status {
 			p.lastChange[s.ID] = time.Now()
-			db.UpdateSessionStatus(p.conn, s.ID, newStatus)
+			if err := db.UpdateSessionStatus(p.conn, s.ID, newStatus); err != nil {
+				log.Printf("poller: update status %q: %v", s.ID, err)
+			}
 		}
 	}
 }
