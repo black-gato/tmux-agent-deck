@@ -95,3 +95,37 @@ func TestDeleteSession(t *testing.T) {
 		t.Errorf("expected error after delete")
 	}
 }
+
+func TestRenameSession(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	now := time.Now().Unix()
+	dbpkg.CreateSession(conn, dbpkg.Session{ID: "s1", Title: "old-name", GroupPath: "my-sessions", ProjectPath: "/p", Tool: "claude", Status: "stopped", CreatedAt: now})
+
+	if err := dbpkg.RenameSession(conn, "s1", "new-name"); err != nil {
+		t.Fatal(err)
+	}
+	s, err := dbpkg.GetSession(conn, "s1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Title != "new-name" {
+		t.Errorf("title: got %q want new-name", s.Title)
+	}
+}
+
+func TestUpdateSessionTmuxName(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	now := time.Now().Unix()
+	dbpkg.CreateSession(conn, dbpkg.Session{ID: "s1", Title: "a", GroupPath: "my-sessions", ProjectPath: "/p", Tool: "claude", Status: "stopped", CreatedAt: now})
+
+	if err := dbpkg.UpdateSessionTmuxName(conn, "s1", "tmux-session-abc"); err != nil {
+		t.Fatal(err)
+	}
+	s, err := dbpkg.GetSession(conn, "s1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.TmuxSession != "tmux-session-abc" {
+		t.Errorf("tmux_session: got %q want tmux-session-abc", s.TmuxSession)
+	}
+}

@@ -75,26 +75,54 @@ func ListSessionsByGroup(conn *sql.DB, groupPath string) ([]Session, error) {
 }
 
 func UpdateSessionStatus(conn *sql.DB, id, status string) error {
-	_, err := conn.Exec(
+	res, err := conn.Exec(
 		`UPDATE sessions SET status = ?, last_active = strftime('%s','now') WHERE id = ?`,
 		status, id,
 	)
-	return err
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("update status %q: %w", id, sql.ErrNoRows)
+	}
+	return nil
 }
 
 func UpdateSessionTmuxName(conn *sql.DB, id, tmuxSession string) error {
-	_, err := conn.Exec(`UPDATE sessions SET tmux_session = ? WHERE id = ?`, tmuxSession, id)
-	return err
+	res, err := conn.Exec(`UPDATE sessions SET tmux_session = ? WHERE id = ?`, tmuxSession, id)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("update tmux name %q: %w", id, sql.ErrNoRows)
+	}
+	return nil
 }
 
 func RenameSession(conn *sql.DB, id, newTitle string) error {
-	_, err := conn.Exec(`UPDATE sessions SET title = ? WHERE id = ?`, newTitle, id)
-	return err
+	res, err := conn.Exec(`UPDATE sessions SET title = ? WHERE id = ?`, newTitle, id)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("rename session %q: %w", id, sql.ErrNoRows)
+	}
+	return nil
 }
 
 func MoveSession(conn *sql.DB, id, groupPath string) error {
-	_, err := conn.Exec(`UPDATE sessions SET group_path = ? WHERE id = ?`, groupPath, id)
-	return err
+	res, err := conn.Exec(`UPDATE sessions SET group_path = ? WHERE id = ?`, groupPath, id)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("move session %q: %w", id, sql.ErrNoRows)
+	}
+	return nil
 }
 
 func DeleteSession(conn *sql.DB, id string) error {
