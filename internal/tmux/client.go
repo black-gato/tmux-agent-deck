@@ -51,8 +51,11 @@ func (c *Client) CapturePaneOutput(name string) (string, error) {
 func (c *Client) ListSessions() ([]string, error) {
 	out, err := cmdOutput("tmux", "list-sessions", "-F", "#{session_name}")
 	if err != nil {
-		// tmux exits 1 when there are no sessions — treat as empty
-		return nil, nil
+		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
+			// tmux exits 1 when there are no sessions
+			return []string{}, nil
+		}
+		return nil, err
 	}
 	var names []string
 	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
