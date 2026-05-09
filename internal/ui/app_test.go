@@ -73,3 +73,58 @@ func TestModelEscClosesDialog(t *testing.T) {
 		t.Errorf("expected mode empty after Esc, got %q", m.Mode())
 	}
 }
+
+func TestNewSessionDialogCreatesSession(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	m := ui.NewModel(conn, nil, nil)
+	m.Reload()
+
+	// open new-session dialog
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+	// type title
+	for _, r := range "my-app" {
+		m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	// confirm
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	sessions, err := db.ListSessions(conn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sessions) != 1 {
+		t.Fatalf("expected 1 session, got %d", len(sessions))
+	}
+	if sessions[0].Title != "my-app" {
+		t.Errorf("title: got %q want my-app", sessions[0].Title)
+	}
+	if sessions[0].GroupPath != "my-sessions" {
+		t.Errorf("group: got %q want my-sessions", sessions[0].GroupPath)
+	}
+}
+
+func TestNewGroupDialogCreatesGroup(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	m := ui.NewModel(conn, nil, nil)
+	m.Reload()
+
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}})
+	for _, r := range "work/frontend" {
+		m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	groups, err := db.ListGroups(conn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, g := range groups {
+		if g.Path == "work/frontend" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("group work/frontend not created")
+	}
+}

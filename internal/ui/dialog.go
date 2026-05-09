@@ -2,8 +2,11 @@ package ui
 
 import (
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/google/uuid"
+	"github.com/black-gato/tmux-agent-deck/internal/db"
 )
 
 type dialogState struct {
@@ -40,6 +43,46 @@ func (m *Model) renderDialog() string {
 }
 
 func (m *Model) commitDialog() {
-	// stub — implemented in Task 10
-	_ = strings.TrimSpace(m.dialog.value)
+	val := strings.TrimSpace(m.dialog.value)
+	if val == "" {
+		return
+	}
+	switch m.mode {
+	case "new-session":
+		groupPath := "my-sessions"
+		if m.cursor < len(m.items) && m.items[m.cursor].Kind == "group" {
+			groupPath = m.items[m.cursor].Group.Path
+		}
+		db.CreateSession(m.conn, db.Session{
+			ID:          uuid.New().String(),
+			Title:       val,
+			GroupPath:   groupPath,
+			ProjectPath: ".",
+			Tool:        "claude",
+			Status:      "stopped",
+			CreatedAt:   time.Now().Unix(),
+		})
+	case "new-group":
+		parts := strings.Split(val, "/")
+		name := parts[len(parts)-1]
+		db.CreateGroup(m.conn, db.Group{
+			Path:        val,
+			Name:        name,
+			DefaultTool: "claude",
+			Expanded:    true,
+		})
+	case "rename":
+		if m.cursor < len(m.items) {
+			item := m.items[m.cursor]
+			if item.Kind == "session" {
+				db.RenameSession(m.conn, item.Session.ID, val)
+			} else if item.Kind == "group" {
+				db.RenameGroup(m.conn, item.Group.Path, val)
+			}
+		}
+	case "move":
+		if m.cursor < len(m.items) && m.items[m.cursor].Kind == "session" {
+			db.MoveSession(m.conn, m.items[m.cursor].Session.ID, val)
+		}
+	}
 }
