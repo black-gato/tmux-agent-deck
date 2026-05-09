@@ -31,3 +31,15 @@ func TestOpenCreatesMySessions(t *testing.T) {
 		t.Errorf("my-sessions group not seeded")
 	}
 }
+
+func TestOpenCreatesSchemaVersion(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	var val string
+	err := conn.QueryRow(`SELECT value FROM metadata WHERE key='schema_version'`).Scan(&val)
+	if err != nil {
+		t.Fatalf("query schema_version: %v", err)
+	}
+	if val != "1" {
+		t.Errorf("schema_version: got %q want %q", val, "1")
+	}
+}

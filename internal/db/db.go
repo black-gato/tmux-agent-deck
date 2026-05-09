@@ -12,6 +12,10 @@ func Open(path string) (*sql.DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)
 	}
+	if err := conn.Ping(); err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("ping sqlite: %w", err)
+	}
 	if err := migrate(conn); err != nil {
 		conn.Close()
 		return nil, fmt.Errorf("migrate: %w", err)
