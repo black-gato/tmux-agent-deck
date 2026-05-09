@@ -1,14 +1,64 @@
 package cmd
 
 import (
+	"database/sql"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+
+	"github.com/black-gato/tmux-agent-deck/internal/db"
 	"github.com/spf13/cobra"
 )
+
+var rootDB *sql.DB
 
 var rootCmd = &cobra.Command{
 	Use:   "tmux-agent-deck",
 	Short: "Manage AI coding agent sessions in tmux",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return launchTUI(rootDB)
+	},
 }
 
 func Execute() error {
+	conn, err := openDB()
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	rootDB = conn
 	return rootCmd.Execute()
+}
+
+// RunWith is used by tests to inject args and capture output without os.Exit.
+func RunWith(args []string, out io.Writer) error {
+	conn, err := openDB()
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	rootDB = conn
+	rootCmd.SetOut(out)
+	rootCmd.SetArgs(args)
+	return rootCmd.Execute()
+}
+
+func openDB() (*sql.DB, error) {
+	path := os.Getenv("AGENT_DECK_DB")
+	if path == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return nil, err
+		}
+		path = filepath.Join(home, ".tmux-agent-deck", "state.db")
+		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+			return nil, fmt.Errorf("create db dir: %w", err)
+		}
+	}
+	return db.Open(path)
+}
+
+func launchTUI(conn *sql.DB) error {
+	return fmt.Errorf("TUI not yet wired (run Task 12)")
 }
