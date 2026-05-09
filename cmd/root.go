@@ -8,6 +8,10 @@ import (
 	"path/filepath"
 
 	"github.com/black-gato/tmux-agent-deck/internal/db"
+	"github.com/black-gato/tmux-agent-deck/internal/state"
+	"github.com/black-gato/tmux-agent-deck/internal/tmux"
+	"github.com/black-gato/tmux-agent-deck/internal/ui"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
 )
 
@@ -62,5 +66,12 @@ func openDB() (*sql.DB, error) {
 }
 
 func launchTUI(conn *sql.DB) error {
-	return fmt.Errorf("TUI not yet wired (run Task 12)")
+	tc := tmux.NewClient()
+	poller := state.New(conn, tc)
+	poller.Start()
+
+	m := ui.NewModel(conn, tc, poller)
+	p := tea.NewProgram(m, tea.WithAltScreen())
+	_, err := p.Run()
+	return err
 }
