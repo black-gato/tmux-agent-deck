@@ -1,7 +1,7 @@
 # tmux-agent-deck Design
 
 **Date:** 2026-05-09  
-**Status:** Approved
+**Status:** MVP Complete
 
 ## Overview
 
@@ -14,21 +14,32 @@ A terminal UI for managing multiple AI coding agent sessions in tmux from a sing
 ```
 tmux-agent-deck/
 ├── main.go
+├── go.mod / go.sum
 ├── cmd/
-│   └── root.go          # cobra CLI entrypoint
+│   ├── root.go          # cobra CLI entrypoint, openDB(), launchTUI(), RunWith()
+│   ├── add.go           # `add` subcommand
+│   ├── list.go          # `list` subcommand
+│   ├── remove.go        # `remove` subcommand
+│   ├── session.go       # `session start/stop/attach` subcommands
+│   ├── group.go         # `group create/delete/move` subcommands
+│   └── cmd_test.go      # integration tests via RunWith()
 ├── internal/
 │   ├── db/
-│   │   ├── db.go        # open, migrate
-│   │   ├── sessions.go  # CRUD for sessions
-│   │   └── groups.go    # CRUD for groups
+│   │   ├── db.go        # Open(), migrate()
+│   │   ├── groups.go    # Group type + CRUD functions
+│   │   └── sessions.go  # Session type + CRUD functions
 │   ├── tmux/
-│   │   └── tmux.go      # spawn, attach, capture-pane, state detection
+│   │   ├── client.go    # NewClient, NewSession, Attach, Kill, Capture, Exists
+│   │   └── status.go    # DetectStatus() pure function
 │   ├── state/
-│   │   └── poller.go    # background goroutine, polls tmux → updates DB
-│   └── ui/
-│       ├── app.go       # bubbletea model, Update/View
-│       ├── list.go      # grouped session list component
-│       └── keys.go      # keybindings
+│   │   └── poller.go    # Poller: Start/Stop/PollOnce, TmuxReader interface
+│   ├── ui/
+│   │   ├── app.go       # bubbletea Model, Init/Update/View, Reload()
+│   │   ├── list.go      # ListItem type, BuildTree(), RenderList()
+│   │   ├── dialog.go    # dialogState, updateDialog(), commitDialog()
+│   │   └── keys.go      # actionForKey() mapping
+│   └── testutil/
+│       └── db.go        # OpenTestDB(t) helper
 └── go.mod
 ```
 
@@ -127,13 +138,13 @@ Polled from `tmux capture-pane -t <session> -p` every ~1s:
 
 ```
 tmux-agent-deck                          # launch TUI
-tmux-agent-deck add [path] -t "Title" -g "work/frontend" -c claude
+tmux-agent-deck add --title "Title" [--group "work/frontend"] [--project /path] [--tool claude]
 tmux-agent-deck list [--json]
 tmux-agent-deck remove <id|title>
 tmux-agent-deck session start <id|title>
 tmux-agent-deck session stop <id|title>
 tmux-agent-deck session attach <id|title>
-tmux-agent-deck group create <name> [--path "work/frontend"] [--tool claude]
+tmux-agent-deck group create <path> [--tool claude]
 tmux-agent-deck group delete <name>
 tmux-agent-deck group move <session> <group>
 ```
