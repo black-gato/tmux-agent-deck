@@ -95,3 +95,36 @@ func TestRenderListContainsStatusSymbol(t *testing.T) {
 		}
 	}
 }
+
+func TestRenderListTruncatesLongTitleToWidth(t *testing.T) {
+	groups := []db.Group{{Path: "g", Name: "g", Expanded: true}}
+	sessions := []db.Session{{ID: "s1", Title: "very-long-session-title-that-should-be-cut", GroupPath: "g", Status: "running"}}
+	items := ui.BuildTree(groups, sessions)
+
+	output := ui.RenderList(items, 1, 20, 24)
+	for _, line := range strings.Split(output, "\n") {
+		visible := stripANSI(line)
+		if len([]rune(visible)) > 20 {
+			t.Errorf("line exceeds width 20: %q (len %d)", visible, len([]rune(visible)))
+		}
+	}
+}
+
+func stripANSI(s string) string {
+	var result []rune
+	runes := []rune(s)
+	i := 0
+	for i < len(runes) {
+		if runes[i] == '\x1b' && i+1 < len(runes) && runes[i+1] == '[' {
+			i += 2
+			for i < len(runes) && runes[i] != 'm' {
+				i++
+			}
+			i++ // skip 'm'
+			continue
+		}
+		result = append(result, runes[i])
+		i++
+	}
+	return string(result)
+}

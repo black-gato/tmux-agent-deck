@@ -1,10 +1,12 @@
 package ui_test
 
 import (
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/black-gato/tmux-agent-deck/internal/db"
+	"github.com/black-gato/tmux-agent-deck/internal/tmux"
 	"github.com/black-gato/tmux-agent-deck/internal/ui"
 	"github.com/black-gato/tmux-agent-deck/internal/testutil"
 )
@@ -159,6 +161,270 @@ func TestEnterOnUnstartedSessionAutoStarts(t *testing.T) {
 	s, _ := db.GetSession(conn, "abc12345-0000-0000-0000-000000000000")
 	if s.TmuxSession == "" {
 		t.Errorf("TmuxSession should be persisted after auto-start")
+	}
+}
+
+func TestReloadFetchesPanesForSelectedSession(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	fake := testutil.NewFakeTmuxClient()
+	fake.Sessions["ad-abc12345"] = "> "
+	fake.Panes["ad-abc12345"] = []tmux.Pane{
+		{Index: 0, Command: "claude"},
+		{Index: 1, Command: "bash"},
+	}
+
+	db.CreateSession(conn, db.Session{
+		ID:          "abc12345-0000-0000-0000-000000000000",
+		Title:       "my-app",
+		GroupPath:   "my-sessions",
+		TmuxSession: "ad-abc12345",
+		ProjectPath: "/tmp",
+		Tool:        "claude",
+		Status:      "running",
+		CreatedAt:   1000,
+	})
+
+	m := ui.NewModel(conn, fake, nil)
+	m.Reload()
+	// cursor=0 is the group; move to session at index 1
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	m.Reload()
+
+	panes := m.Panes()
+	if len(panes) != 2 {
+		t.Fatalf("expected 2 panes, got %d", len(panes))
+	}
+	if panes[0].Command != "claude" {
+		t.Errorf("pane[0].Command: got %q want claude", panes[0].Command)
+	}
+}
+
+func TestReloadFetchesOutputForSelectedSession(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	fake := testutil.NewFakeTmuxClient()
+	fake.Sessions["ad-abc12345"] = "Running tests...\n✓ 12 pass\n> "
+
+	db.CreateSession(conn, db.Session{
+		ID:          "abc12345-0000-0000-0000-000000000000",
+		Title:       "my-app",
+		GroupPath:   "my-sessions",
+		TmuxSession: "ad-abc12345",
+		ProjectPath: "/tmp",
+		Tool:        "claude",
+		Status:      "running",
+		CreatedAt:   1000,
+	})
+
+	m := ui.NewModel(conn, fake, nil)
+	m.Reload()
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	m.Reload()
+
+	if !strings.Contains(m.Output(), "12 pass") {
+		t.Errorf("output missing captured pane output, got: %q", m.Output())
+	}
+}
+
+func TestVTogglesFullScreen(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	m := ui.NewModel(conn, nil, nil)
+	m.Reload()
+
+	if m.ViewFull() {
+		t.Fatal("viewFull should start false")
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'v'}})
+	if !m.ViewFull() {
+		t.Error("viewFull should be true after v")
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'v'}})
+	if m.ViewFull() {
+		t.Error("viewFull should be false after second v")
+	}
+}
+
+func TestEOnSessionOpensEditNotes(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	db.CreateSession(conn, db.Session{
+		ID: "s1", Title: "my-app", GroupPath: "my-sessions",
+		ProjectPath: "/p", Tool: "claude", Status: "stopped", CreatedAt: 1000,
+	})
+	m := ui.NewModel(conn, nil, nil)
+	m.Reload()
+	// cursor 0 = group, move to session
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}})
+	if m.Mode() != "edit-notes" {
+		t.Errorf("expected mode edit-notes, got %q", m.Mode())
+	}
+}
+
+func TestEOnGroupHasNoEffect(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	m := ui.NewModel(conn, nil, nil)
+	m.Reload()
+	// cursor 0 = group
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}})
+	if m.Mode() != "" {
+		t.Errorf("e on group should not change mode, got %q", m.Mode())
+	}
+}
+
+func TestEditNotesEnterSaves(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	db.CreateSession(conn, db.Session{
+		ID: "s1", Title: "my-app", GroupPath: "my-sessions",
+		ProjectPath: "/p", Tool: "claude", Status: "stopped", CreatedAt: 1000,
+	})
+	m := ui.NewModel(conn, nil, nil)
+	m.Reload()
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}}) // select session
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}}) // open edit-notes
+
+	for _, r := range "my note" {
+		m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter}) // save
+
+	if m.Mode() != "" {
+		t.Errorf("mode should clear after Enter, got %q", m.Mode())
+	}
+	s, err := db.GetSession(conn, "s1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Notes != "my note" {
+		t.Errorf("notes: got %q want my note", s.Notes)
+	}
+}
+
+func TestEditNotesEscDiscards(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	db.CreateSession(conn, db.Session{
+		ID: "s1", Title: "my-app", GroupPath: "my-sessions",
+		ProjectPath: "/p", Tool: "claude", Status: "stopped", CreatedAt: 1000,
+	})
+	m := ui.NewModel(conn, nil, nil)
+	m.Reload()
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}})
+	for _, r := range "discard me" {
+		m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+
+	s, err := db.GetSession(conn, "s1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Notes != "" {
+		t.Errorf("notes should not be saved on Esc, got %q", s.Notes)
+	}
+}
+
+func TestDetailPanelShowsSessionTitle(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	fake := testutil.NewFakeTmuxClient()
+	fake.Sessions["ad-s1"] = "some output\n> "
+
+	db.CreateSession(conn, db.Session{
+		ID: "s1", Title: "my-feature", GroupPath: "my-sessions",
+		TmuxSession: "ad-s1", ProjectPath: "/p", Tool: "claude",
+		Status: "running", CreatedAt: 1000,
+	})
+	m := ui.NewModel(conn, fake, nil)
+	m.Reload()
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	m.Reload()
+
+	panel := m.RenderDetailPanel(60, 20)
+	if !strings.Contains(panel, "my-feature") {
+		t.Errorf("detail panel missing session title, got:\n%s", panel)
+	}
+}
+
+func TestDetailPanelShowsNotes(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	fake := testutil.NewFakeTmuxClient()
+	fake.Sessions["ad-s1"] = "> "
+
+	db.CreateSession(conn, db.Session{
+		ID: "s1", Title: "my-feature", GroupPath: "my-sessions",
+		TmuxSession: "ad-s1", ProjectPath: "/p", Tool: "claude",
+		Status: "waiting", CreatedAt: 1000,
+	})
+	db.UpdateSessionNotes(conn, "s1", "check divergences first")
+
+	m := ui.NewModel(conn, fake, nil)
+	m.Reload()
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	m.Reload()
+
+	panel := m.RenderDetailPanel(60, 20)
+	if !strings.Contains(panel, "check divergences first") {
+		t.Errorf("detail panel missing notes, got:\n%s", panel)
+	}
+}
+
+func TestDetailPanelShowsPaneList(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	fake := testutil.NewFakeTmuxClient()
+	fake.Sessions["ad-s1"] = "> "
+	fake.Panes["ad-s1"] = []tmux.Pane{{Index: 0, Command: "claude"}, {Index: 1, Command: "bash"}}
+
+	db.CreateSession(conn, db.Session{
+		ID: "s1", Title: "my-feature", GroupPath: "my-sessions",
+		TmuxSession: "ad-s1", ProjectPath: "/p", Tool: "claude",
+		Status: "running", CreatedAt: 1000,
+	})
+	m := ui.NewModel(conn, fake, nil)
+	m.Reload()
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	m.Reload()
+
+	panel := m.RenderDetailPanel(60, 20)
+	if !strings.Contains(panel, "[0] claude") {
+		t.Errorf("detail panel missing pane list, got:\n%s", panel)
+	}
+	if !strings.Contains(panel, "[1] bash") {
+		t.Errorf("detail panel missing pane [1], got:\n%s", panel)
+	}
+}
+
+func TestViewRendersSplitLayout(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	m := ui.NewModel(conn, nil, nil)
+	m.Reload()
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+
+	view := m.View()
+	if !strings.Contains(view, "│") {
+		t.Errorf("split layout view should contain │ divider, got:\n%s", view)
+	}
+	if !strings.Contains(view, "SESSIONS") {
+		t.Errorf("split layout view should contain SESSIONS header, got:\n%s", view)
+	}
+}
+
+func TestViewFullScreenHidesLeftColumn(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	fake := testutil.NewFakeTmuxClient()
+	fake.Sessions["ad-s1"] = "output\n> "
+	db.CreateSession(conn, db.Session{
+		ID: "s1", Title: "my-feature", GroupPath: "my-sessions",
+		TmuxSession: "ad-s1", ProjectPath: "/p", Tool: "claude",
+		Status: "running", CreatedAt: 1000,
+	})
+	m := ui.NewModel(conn, fake, nil)
+	m.Reload()
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'v'}})
+	m.Reload()
+
+	view := m.View()
+	if strings.Contains(view, "SESSIONS") {
+		t.Errorf("full-screen view should not show SESSIONS column, got:\n%s", view)
 	}
 }
 

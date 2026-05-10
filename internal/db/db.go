@@ -53,10 +53,26 @@ func migrate(conn *sql.DB) error {
 			tool         TEXT NOT NULL DEFAULT 'claude',
 			status       TEXT NOT NULL DEFAULT 'stopped',
 			created_at   INTEGER NOT NULL,
-			last_active  INTEGER NOT NULL DEFAULT 0
+			last_active  INTEGER NOT NULL DEFAULT 0,
+			notes        TEXT NOT NULL DEFAULT ''
 		);
-		INSERT OR IGNORE INTO metadata (key, value) VALUES ('schema_version', '1');
+		INSERT OR IGNORE INTO metadata (key, value) VALUES ('schema_version', '2');
 		INSERT OR IGNORE INTO groups (path, name) VALUES ('my-sessions', 'my-sessions');
 	`)
-	return err
+	if err != nil {
+		return err
+	}
+	var version string
+	if err := conn.QueryRow(`SELECT value FROM metadata WHERE key = 'schema_version'`).Scan(&version); err != nil {
+		return fmt.Errorf("read schema_version: %w", err)
+	}
+	if version == "1" {
+		if _, err := conn.Exec(`ALTER TABLE sessions ADD COLUMN notes TEXT NOT NULL DEFAULT ''`); err != nil {
+			return err
+		}
+		if _, err := conn.Exec(`UPDATE metadata SET value = '2' WHERE key = 'schema_version'`); err != nil {
+			return err
+		}
+	}
+	return nil
 }

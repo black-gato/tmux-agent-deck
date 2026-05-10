@@ -3,9 +3,11 @@ package ui
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/black-gato/tmux-agent-deck/internal/db"
 	"github.com/black-gato/tmux-agent-deck/internal/state"
 	"github.com/black-gato/tmux-agent-deck/internal/tmux"
@@ -27,6 +29,9 @@ type Model struct {
 	dialog        dialogState
 	err           error
 	PendingAttach string // tmux session name to attach after TUI exits
+	viewFull      bool
+	panes         []tmux.Pane
+	output        string
 }
 
 func NewModel(conn *sql.DB, tc tmux.ClientIface, poller *state.Poller) *Model {
@@ -48,12 +53,28 @@ func (m *Model) Reload() error {
 	if m.cursor >= len(m.items) && len(m.items) > 0 {
 		m.cursor = len(m.items) - 1
 	}
+	m.panes = nil
+	m.output = ""
+	if m.tmuxC != nil && m.cursor < len(m.items) && m.items[m.cursor].Kind == "session" {
+		s := m.items[m.cursor].Session
+		if s.TmuxSession != "" {
+			if panes, err := m.tmuxC.ListPanes(s.TmuxSession); err == nil {
+				m.panes = panes
+			}
+			if out, err := m.tmuxC.CapturePaneOutput(s.TmuxSession); err == nil {
+				m.output = out
+			}
+		}
+	}
 	return nil
 }
 
-func (m *Model) Items() []ListItem { return m.items }
-func (m *Model) Cursor() int       { return m.cursor }
-func (m *Model) Mode() string      { return m.mode }
+func (m *Model) Items() []ListItem  { return m.items }
+func (m *Model) Cursor() int        { return m.cursor }
+func (m *Model) Mode() string       { return m.mode }
+func (m *Model) Panes() []tmux.Pane { return m.panes }
+func (m *Model) Output() string     { return m.output }
+func (m *Model) ViewFull() bool     { return m.viewFull }
 
 func (m *Model) Init() tea.Cmd {
 	if err := m.Reload(); err != nil {
@@ -72,7 +93,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		return m, nil
+		return m, tea.ClearScreen
 	case tea.KeyMsg:
 		if m.mode != "" {
 			return m.updateDialog(msg)
@@ -141,6 +162,13 @@ func (m *Model) updateNavigation(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			m.Reload()
 		}
+	case "toggle-full":
+		m.viewFull = !m.viewFull
+	case "edit-notes":
+		if m.cursor < len(m.items) && m.items[m.cursor].Kind == "session" {
+			m.mode = "edit-notes"
+			m.dialog = dialogState{prompt: "", value: m.items[m.cursor].Session.Notes}
+		}
 	case "quit":
 		if m.poller != nil {
 			m.poller.Stop()
@@ -154,10 +182,74 @@ func (m *Model) View() string {
 	if m.err != nil {
 		return "error: " + m.err.Error()
 	}
-	if m.mode != "" {
-		return m.renderDialog()
+
+	leftW := int(float64(m.width) * 0.35)
+	if leftW < 10 {
+		leftW = 10
 	}
-	return RenderList(m.items, m.cursor, m.width, m.height)
+	rightW := m.width - leftW - 1
+	if rightW < 10 {
+		rightW = 10
+	}
+	contentH := m.height - 3
+	if contentH < 1 {
+		contentH = 1
+	}
+
+	header := m.renderAppHeader()
+	footer := renderFooter()
+
+	if m.viewFull {
+		sep := strings.Repeat("─", m.width)
+		detail := m.RenderDetailPanel(m.width, contentH)
+		return header + "\n" + sep + "\n" + detail + "\n" + footer
+	}
+
+	leftContent := RenderList(m.items, m.cursor, leftW, contentH)
+	var rightContent string
+	if m.mode != "" && m.mode != "edit-notes" {
+		rightContent = m.renderDialog()
+	} else {
+		rightContent = m.RenderDetailPanel(rightW, contentH)
+	}
+
+	leftLines := strings.Split(leftContent, "\n")
+	rightLines := strings.Split(rightContent, "\n")
+
+	sep := strings.Repeat("─", leftW) + "┬" + strings.Repeat("─", rightW)
+
+	var bodyLines []string
+	for i := 0; i < contentH; i++ {
+		var left, right string
+		if i < len(leftLines) {
+			left = leftLines[i]
+		}
+		if i < len(rightLines) {
+			right = rightLines[i]
+		}
+		bodyLines = append(bodyLines, padRight(left, leftW)+"│"+right)
+	}
+
+	return header + "\n" + sep + "\n" + strings.Join(bodyLines, "\n") + "\n" + footer
+}
+
+func (m *Model) renderAppHeader() string {
+	var running, waiting, idle int
+	for _, s := range m.sessions {
+		switch s.Status {
+		case "running":
+			running++
+		case "waiting":
+			waiting++
+		case "idle":
+			idle++
+		}
+	}
+	return fmt.Sprintf(" Agent Deck  ● %d running  ○ %d waiting  ◐ %d idle", running, waiting, idle)
+}
+
+func renderFooter() string {
+	return " Enter Attach  v Expand output  e Notes  n New  g Group  d Delete  q Quit"
 }
 
 func tick() tea.Cmd {
@@ -165,6 +257,114 @@ func tick() tea.Cmd {
 		time.Sleep(time.Second)
 		return tickMsg{}
 	}
+}
+
+func (m *Model) RenderDetailPanel(w, h int) string {
+	if m.cursor >= len(m.items) || m.items[m.cursor].Kind != "session" {
+		return ""
+	}
+	s := m.items[m.cursor].Session
+
+	var lines []string
+
+	lines = append(lines, sectionHeader("SESSION", w))
+
+	sym := statusSymbol[s.Status]
+	if sym == "" {
+		sym = "—"
+	}
+	lines = append(lines, fmt.Sprintf(" %s  %s", s.Title, sym))
+	lines = append(lines, fmt.Sprintf(" group: %s", s.GroupPath))
+	lines = append(lines, " "+renderPaneList(m.panes))
+
+	const sessionHeaderLines = 4
+	const notesLines = 5
+	outputH := h - sessionHeaderLines - notesLines - 1
+	if outputH < 0 {
+		outputH = 0
+	}
+	lines = append(lines, sectionHeader("OUTPUT", w))
+	outputTail := tailLines(m.output, outputH)
+	for _, ol := range outputTail {
+		lines = append(lines, " "+truncate(ol, w-1))
+	}
+	for i := len(outputTail); i < outputH; i++ {
+		lines = append(lines, "")
+	}
+
+	lines = append(lines, sectionHeader("NOTES", w))
+	var noteText string
+	if s.Notes != "" {
+		noteText = s.Notes
+	} else {
+		noteText = "No notes"
+	}
+	noteRunes := []rune(noteText)
+	for row := 0; row < 3; row++ {
+		start := row * (w - 1)
+		if start >= len(noteRunes) {
+			lines = append(lines, "")
+			continue
+		}
+		end := start + (w - 1)
+		if end > len(noteRunes) {
+			end = len(noteRunes)
+		}
+		lines = append(lines, " "+string(noteRunes[start:end]))
+	}
+	if m.mode == "edit-notes" {
+		lines = append(lines, " > "+m.dialog.value)
+	} else {
+		lines = append(lines, " e edit")
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+func sectionHeader(title string, width int) string {
+	dashes := width - len([]rune(title)) - 2
+	if dashes < 0 {
+		dashes = 0
+	}
+	return title + " " + strings.Repeat("─", dashes)
+}
+
+func renderPaneList(panes []tmux.Pane) string {
+	if len(panes) == 0 {
+		return ""
+	}
+	var parts []string
+	for i, p := range panes {
+		entry := fmt.Sprintf("[%d] %s", p.Index, p.Command)
+		if i == 0 {
+			parts = append(parts, entry)
+		} else {
+			parts = append(parts, dimStyle.Render(entry))
+		}
+	}
+	return strings.Join(parts, "  ")
+}
+
+func tailLines(output string, n int) []string {
+	if n <= 0 || output == "" {
+		return nil
+	}
+	all := strings.Split(output, "\n")
+	if len(all) > 0 && all[len(all)-1] == "" {
+		all = all[:len(all)-1]
+	}
+	if len(all) <= n {
+		return all
+	}
+	return all[len(all)-n:]
+}
+
+func padRight(s string, width int) string {
+	visual := lipgloss.Width(s)
+	if visual >= width {
+		return s
+	}
+	return s + strings.Repeat(" ", width-visual)
 }
 
 // ensureStarted returns the tmux session name for s, spawning one if needed.

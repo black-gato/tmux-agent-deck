@@ -29,9 +29,6 @@ var (
 	dimStyle      = lipgloss.NewStyle().Faint(true)
 )
 
-// BuildTree returns a flattened, ordered list of groups and their sessions.
-// Top-level groups are those with no "/" in their path. Nested groups are
-// appended recursively directly after their parent when the parent is expanded.
 func BuildTree(groups []db.Group, sessions []db.Session) []ListItem {
 	sessionsByGroup := make(map[string][]db.Session)
 	for _, s := range sessions {
@@ -41,7 +38,7 @@ func BuildTree(groups []db.Group, sessions []db.Session) []ListItem {
 	var items []ListItem
 	for _, g := range groups {
 		if strings.Contains(g.Path, "/") {
-			continue // skip; appended recursively by parent
+			continue
 		}
 		items = append(items, appendGroupItems(g, groups, sessionsByGroup, 0)...)
 	}
@@ -59,14 +56,13 @@ func appendGroupItems(g db.Group, allGroups []db.Group, sessionsByGroup map[stri
 		items = append(items, ListItem{Kind: "session", Session: &sc, Depth: depth + 1})
 	}
 	for _, child := range allGroups {
-		// direct child: has exactly one more path segment than g
 		prefix := g.Path + "/"
 		if !strings.HasPrefix(child.Path, prefix) {
 			continue
 		}
 		remainder := child.Path[len(prefix):]
 		if strings.Contains(remainder, "/") {
-			continue // grandchild or deeper — handled recursively
+			continue
 		}
 		items = append(items, appendGroupItems(child, allGroups, sessionsByGroup, depth+1)...)
 	}
@@ -75,13 +71,13 @@ func appendGroupItems(g db.Group, allGroups []db.Group, sessionsByGroup map[stri
 
 func RenderList(items []ListItem, cursor, width, height int) string {
 	var sb strings.Builder
-	sb.WriteString("tmux-agent-deck\n\n")
+	sb.WriteString("SESSIONS\n")
+	sb.WriteString(strings.Repeat("─", width) + "\n")
 
-	// Viewport: show a window of items centered around cursor
 	start := 0
 	end := len(items)
 	if height > 4 {
-		viewHeight := height - 4 // reserve header (2) and footer (2) lines
+		viewHeight := height - 4
 		if viewHeight > 0 && len(items) > viewHeight {
 			start = cursor - viewHeight/2
 			if start < 0 {
@@ -109,7 +105,11 @@ func RenderList(items []ListItem, cursor, width, height int) string {
 			if !item.Group.Expanded {
 				arrow = "►"
 			}
-			raw := fmt.Sprintf("%s%s %s", indent, arrow, item.Group.Name)
+			nameMax := width - len([]rune(indent)) - 2
+			if nameMax < 1 {
+				nameMax = 1
+			}
+			raw := fmt.Sprintf("%s%s %s", indent, arrow, truncate(item.Group.Name, nameMax))
 			if selected {
 				line = selectedStyle.Render(raw)
 			} else {
@@ -120,17 +120,32 @@ func RenderList(items []ListItem, cursor, width, height int) string {
 			if sym == "" {
 				sym = "—"
 			}
+			prefixLen := len([]rune(indent)) + 1 + 2 // sym(1) + spaces(2)
+			titleMax := width - prefixLen
+			if titleMax < 1 {
+				titleMax = 1
+			}
+			title := truncate(item.Session.Title, titleMax)
 			if selected {
-				raw := fmt.Sprintf("%s%s  %s  %s", indent, sym, item.Session.Title, item.Session.Tool)
+				raw := fmt.Sprintf("%s%s  %s", indent, sym, title)
 				line = selectedStyle.Render(raw)
 			} else {
-				toolStr := dimStyle.Render(item.Session.Tool)
-				line = fmt.Sprintf("%s%s  %-20s %s", indent, sym, item.Session.Title, toolStr)
+				line = fmt.Sprintf("%s%s  %s", indent, sym, title)
 			}
 		}
 		sb.WriteString(line + "\n")
 	}
 
-	sb.WriteString("\n[n]ew  [g]roup  [m]ove  [r]ename  [d]elete  [q]uit")
 	return sb.String()
+}
+
+func truncate(s string, n int) string {
+	runes := []rune(s)
+	if len(runes) <= n {
+		return s
+	}
+	if n <= 1 {
+		return "…"
+	}
+	return string(runes[:n-1]) + "…"
 }

@@ -1,17 +1,19 @@
 package testutil
 
-import "fmt"
+import (
+	"fmt"
 
-// FakeTmuxClient implements tmux.ClientIface for tests.
-// Configure Sessions to control which sessions "exist".
-// NewSessionCalls and AttachCalls record what was called.
+	"github.com/black-gato/tmux-agent-deck/internal/tmux"
+)
+
 type FakeTmuxClient struct {
-	Sessions       map[string]string // session name → pane output
+	Sessions        map[string]string
+	Panes           map[string][]tmux.Pane
 	NewSessionCalls []NewSessionCall
-	AttachCalls    []string
-	KillCalls      []string
-	NewSessionErr  error
-	AttachErr      error
+	AttachCalls     []string
+	KillCalls       []string
+	NewSessionErr   error
+	AttachErr       error
 }
 
 type NewSessionCall struct {
@@ -21,7 +23,10 @@ type NewSessionCall struct {
 }
 
 func NewFakeTmuxClient() *FakeTmuxClient {
-	return &FakeTmuxClient{Sessions: make(map[string]string)}
+	return &FakeTmuxClient{
+		Sessions: make(map[string]string),
+		Panes:    make(map[string][]tmux.Pane),
+	}
 }
 
 func (f *FakeTmuxClient) NewSession(name, startDir, command string) error {
@@ -63,4 +68,12 @@ func (f *FakeTmuxClient) ListSessions() ([]string, error) {
 		names = append(names, name)
 	}
 	return names, nil
+}
+
+func (f *FakeTmuxClient) ListPanes(session string) ([]tmux.Pane, error) {
+	panes, ok := f.Panes[session]
+	if !ok {
+		return []tmux.Pane{}, nil
+	}
+	return panes, nil
 }
