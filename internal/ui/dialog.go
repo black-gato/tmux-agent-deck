@@ -43,16 +43,19 @@ func (m *Model) updateDialog(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) renderDialog() string {
+	if m.mode == "edit-notes" {
+		return "> " + m.dialog.value
+	}
 	return m.dialog.prompt + "\n> " + m.dialog.value
 }
 
 func (m *Model) commitDialog() {
-	val := strings.TrimSpace(m.dialog.value)
-	if val == "" {
-		return
-	}
 	switch m.mode {
 	case "new-session":
+		val := strings.TrimSpace(m.dialog.value)
+		if val == "" {
+			return
+		}
 		groupPath := defaultGroupPath
 		if m.cursor < len(m.items) && m.items[m.cursor].Kind == "group" {
 			groupPath = m.items[m.cursor].Group.Path
@@ -69,6 +72,10 @@ func (m *Model) commitDialog() {
 			m.err = err
 		}
 	case "new-group":
+		val := strings.TrimSpace(m.dialog.value)
+		if val == "" {
+			return
+		}
 		parts := strings.Split(val, "/")
 		name := parts[len(parts)-1]
 		if err := db.CreateGroup(m.conn, db.Group{
@@ -80,6 +87,10 @@ func (m *Model) commitDialog() {
 			m.err = err
 		}
 	case "rename":
+		val := strings.TrimSpace(m.dialog.value)
+		if val == "" {
+			return
+		}
 		if m.cursor < len(m.items) {
 			item := m.items[m.cursor]
 			var err error
@@ -93,8 +104,19 @@ func (m *Model) commitDialog() {
 			}
 		}
 	case "move":
+		val := strings.TrimSpace(m.dialog.value)
+		if val == "" {
+			return
+		}
 		if m.cursor < len(m.items) && m.items[m.cursor].Kind == "session" {
 			if err := db.MoveSession(m.conn, m.items[m.cursor].Session.ID, val); err != nil {
+				m.err = err
+			}
+		}
+	case "edit-notes":
+		if m.cursor < len(m.items) && m.items[m.cursor].Kind == "session" {
+			s := m.items[m.cursor].Session
+			if err := db.UpdateSessionNotes(m.conn, s.ID, m.dialog.value); err != nil {
 				m.err = err
 			}
 		}

@@ -270,6 +270,58 @@ func TestEOnGroupHasNoEffect(t *testing.T) {
 	}
 }
 
+func TestEditNotesEnterSaves(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	db.CreateSession(conn, db.Session{
+		ID: "s1", Title: "my-app", GroupPath: "my-sessions",
+		ProjectPath: "/p", Tool: "claude", Status: "stopped", CreatedAt: 1000,
+	})
+	m := ui.NewModel(conn, nil, nil)
+	m.Reload()
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}}) // select session
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}}) // open edit-notes
+
+	for _, r := range "my note" {
+		m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter}) // save
+
+	if m.Mode() != "" {
+		t.Errorf("mode should clear after Enter, got %q", m.Mode())
+	}
+	s, err := db.GetSession(conn, "s1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Notes != "my note" {
+		t.Errorf("notes: got %q want my note", s.Notes)
+	}
+}
+
+func TestEditNotesEscDiscards(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	db.CreateSession(conn, db.Session{
+		ID: "s1", Title: "my-app", GroupPath: "my-sessions",
+		ProjectPath: "/p", Tool: "claude", Status: "stopped", CreatedAt: 1000,
+	})
+	m := ui.NewModel(conn, nil, nil)
+	m.Reload()
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}})
+	for _, r := range "discard me" {
+		m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+
+	s, err := db.GetSession(conn, "s1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Notes != "" {
+		t.Errorf("notes should not be saved on Esc, got %q", s.Notes)
+	}
+}
+
 func TestEnterOnRunningSessionAttachesWithoutRestart(t *testing.T) {
 	conn := testutil.OpenTestDB(t)
 	fake := testutil.NewFakeTmuxClient()
