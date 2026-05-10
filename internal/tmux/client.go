@@ -8,6 +8,8 @@ import (
 	"strings"
 )
 
+const logPrefix = "tmux-agent-deck: "
+
 // ClientIface is the full tmux capability surface used by the app.
 type ClientIface interface {
 	NewSession(name, startDir, command string) error
@@ -109,7 +111,7 @@ func saveBinding(key string) string {
 
 func setBinding(key, command string) {
 	if err := runCmd("tmux", "bind-key", "-T", "prefix", key, command); err != nil {
-		fmt.Fprintf(os.Stderr, "tmux-agent-deck: bind-key %s: %v\n", key, err)
+		fmt.Fprintf(os.Stderr, logPrefix+"bind-key %s: %v\n", key, err)
 	}
 }
 
@@ -121,7 +123,7 @@ func restoreBinding(key, savedCmd string) {
 		err = runCmd("tmux", "bind-key", "-T", "prefix", key, savedCmd)
 	}
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "tmux-agent-deck: restore binding %s: %v\n", key, err)
+		fmt.Fprintf(os.Stderr, logPrefix+"restore binding %s: %v\n", key, err)
 	}
 }
 
