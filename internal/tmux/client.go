@@ -38,9 +38,9 @@ func (c *Client) AttachSession(name string) error {
 	if os.Getenv("TMUX") != "" {
 		return runInteractive("tmux", "switch-client", "-t", name)
 	}
-	saved := saveBinding("q")
-	setBinding("q", "detach-client")
-	defer restoreBinding("q", saved)
+	saved := saveBinding("C-q")
+	setBinding("C-q", "detach-client")
+	defer restoreBinding("C-q", saved)
 	return runInteractive("tmux", "attach-session", "-t", name)
 }
 
@@ -86,31 +86,31 @@ func (c *Client) ListSessions() ([]string, error) {
 }
 
 // ParseBindingCommand extracts the command from a tmux list-keys output line.
-// Input format: "bind-key [-r|-rT] -T prefix q <command>"
-// Returns "" if the input is empty or unparseable.
-func ParseBindingCommand(listKeysOutput string) string {
+// Input format: "bind-key [-r|-rT] -T <table> <key> <command>"
+// Returns "" if the input is empty or the key separator is not found.
+func ParseBindingCommand(listKeysOutput, key string) string {
 	line := strings.TrimSpace(listKeysOutput)
 	if line == "" {
 		return ""
 	}
-	// Find " q " and take everything after it — the key is always "q" here.
-	idx := strings.Index(line, " q ")
+	sep := " " + key + " "
+	idx := strings.Index(line, sep)
 	if idx == -1 {
 		return ""
 	}
-	return strings.TrimSpace(line[idx+3:])
+	return strings.TrimSpace(line[idx+len(sep):])
 }
 
 func saveBinding(key string) string {
-	out, err := cmdOutput("tmux", "list-keys", "-T", "prefix", key)
+	out, err := cmdOutput("tmux", "list-keys", "-T", "root", key)
 	if err != nil {
 		return ""
 	}
-	return ParseBindingCommand(string(out))
+	return ParseBindingCommand(string(out), key)
 }
 
 func setBinding(key, command string) {
-	if err := runCmd("tmux", "bind-key", "-T", "prefix", key, command); err != nil {
+	if err := runCmd("tmux", "bind-key", "-T", "root", key, command); err != nil {
 		fmt.Fprintf(os.Stderr, logPrefix+"bind-key %s: %v\n", key, err)
 	}
 }
@@ -118,9 +118,9 @@ func setBinding(key, command string) {
 func restoreBinding(key, savedCmd string) {
 	var err error
 	if savedCmd == "" {
-		err = runCmd("tmux", "unbind-key", "-T", "prefix", key)
+		err = runCmd("tmux", "unbind-key", "-T", "root", key)
 	} else {
-		err = runCmd("tmux", "bind-key", "-T", "prefix", key, savedCmd)
+		err = runCmd("tmux", "bind-key", "-T", "root", key, savedCmd)
 	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, logPrefix+"restore binding %s: %v\n", key, err)

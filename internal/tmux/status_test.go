@@ -54,50 +54,58 @@ func TestDetectStatusRecentActivityIsRunning(t *testing.T) {
 func TestParseBindingCommand(t *testing.T) {
 	tests := []struct {
 		name  string
+		key   string
 		input string
 		want  string
 	}{
 		{
 			name:  "simple command",
-			input: "bind-key -T prefix q display-panes",
+			key:   "C-q",
+			input: "bind-key -T root C-q display-panes",
 			want:  "display-panes",
 		},
 		{
 			name:  "multi-word command",
-			input: "bind-key -T prefix q run-shell 'echo hi'",
+			key:   "C-q",
+			input: "bind-key -T root C-q run-shell 'echo hi'",
 			want:  "run-shell 'echo hi'",
 		},
 		{
 			name:  "repeatable flag",
-			input: "bind-key -rT prefix q resize-pane -D 5",
+			key:   "C-q",
+			input: "bind-key -rT root C-q resize-pane -D 5",
 			want:  "resize-pane -D 5",
 		},
 		{
 			name:  "empty output means no binding",
+			key:   "C-q",
 			input: "",
 			want:  "",
 		},
 		{
 			name:  "whitespace only",
+			key:   "C-q",
 			input: "   ",
 			want:  "",
 		},
 		{
-			name:  "q in command is not confused with key",
-			input: "bind-key -T prefix q send-keys q Enter",
-			want:  "send-keys q Enter",
-		},
-		{
-			name:  "non-empty but no q sentinel returns empty",
+			name:  "key not present returns empty",
+			key:   "C-q",
 			input: "bind-key -T root x some-command",
 			want:  "",
+		},
+		{
+			name:  "single-char key still works",
+			key:   "q",
+			input: "bind-key -T prefix q send-keys q Enter",
+			want:  "send-keys q Enter",
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := tmux.ParseBindingCommand(tt.input)
+			got := tmux.ParseBindingCommand(tt.input, tt.key)
 			if got != tt.want {
-				t.Errorf("ParseBindingCommand(%q) = %q, want %q", tt.input, got, tt.want)
+				t.Errorf("ParseBindingCommand(%q, %q) = %q, want %q", tt.input, tt.key, got, tt.want)
 			}
 		})
 	}
