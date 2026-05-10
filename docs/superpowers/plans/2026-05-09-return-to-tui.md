@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** When a user attaches to an agent session, automatically bind `prefix + q` to `detach-client` so they can return to the TUI with a single keystroke, then restore the original binding on return.
+**Goal:** When a user attaches to an agent session, automatically bind `ctrl + q` (`C-q` in the tmux `root` table) to `detach-client` so they can return to the TUI with a single keystroke, then restore the original binding on return.
 
 **Architecture:** All changes are in `AttachSession()` in `internal/tmux/client.go`. Before attaching, save the current `prefix + q` binding, set it to `detach-client`, block on attach, then restore in a deferred call. The only testable pure logic is the `list-keys` output parser, which gets its own test.
 
