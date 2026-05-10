@@ -36,6 +36,9 @@ func (c *Client) AttachSession(name string) error {
 	if os.Getenv("TMUX") != "" {
 		return runInteractive("tmux", "switch-client", "-t", name)
 	}
+	saved := saveBinding("q")
+	setBinding("q", "detach-client")
+	defer restoreBinding("q", saved)
 	return runInteractive("tmux", "attach-session", "-t", name)
 }
 
@@ -94,6 +97,32 @@ func ParseBindingCommand(listKeysOutput string) string {
 		return ""
 	}
 	return strings.TrimSpace(line[idx+3:])
+}
+
+func saveBinding(key string) string {
+	out, err := cmdOutput("tmux", "list-keys", "-T", "prefix", key)
+	if err != nil {
+		return ""
+	}
+	return ParseBindingCommand(string(out))
+}
+
+func setBinding(key, command string) {
+	if err := runCmd("tmux", "bind-key", "-T", "prefix", key, command); err != nil {
+		fmt.Fprintf(os.Stderr, "tmux-agent-deck: bind-key %s: %v\n", key, err)
+	}
+}
+
+func restoreBinding(key, savedCmd string) {
+	var err error
+	if savedCmd == "" {
+		err = runCmd("tmux", "unbind-key", "-T", "prefix", key)
+	} else {
+		err = runCmd("tmux", "bind-key", "-T", "prefix", key, savedCmd)
+	}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "tmux-agent-deck: restore binding %s: %v\n", key, err)
+	}
 }
 
 func runCmd(name string, args ...string) error {
