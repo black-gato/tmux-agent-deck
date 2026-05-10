@@ -196,7 +196,7 @@ func (m *Model) View() string {
 	}
 
 	header := m.renderAppHeader()
-	footer := renderFooter(m.width)
+	footer := renderFooter()
 
 	if m.viewFull {
 		sep := strings.Repeat("─", m.width)
@@ -247,7 +247,7 @@ func (m *Model) renderAppHeader() string {
 	return fmt.Sprintf(" Agent Deck  ● %d running  ○ %d waiting  ◐ %d idle", running, waiting, idle)
 }
 
-func renderFooter(width int) string {
+func renderFooter() string {
 	return " Enter Attach  v Expand output  e Notes  n New  g Group  d Delete  q Quit"
 }
 
