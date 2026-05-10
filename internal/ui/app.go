@@ -27,6 +27,9 @@ type Model struct {
 	dialog        dialogState
 	err           error
 	PendingAttach string // tmux session name to attach after TUI exits
+	viewFull      bool
+	panes         []tmux.Pane
+	output        string
 }
 
 func NewModel(conn *sql.DB, tc tmux.ClientIface, poller *state.Poller) *Model {
@@ -48,12 +51,28 @@ func (m *Model) Reload() error {
 	if m.cursor >= len(m.items) && len(m.items) > 0 {
 		m.cursor = len(m.items) - 1
 	}
+	m.panes = nil
+	m.output = ""
+	if m.tmuxC != nil && m.cursor < len(m.items) && m.items[m.cursor].Kind == "session" {
+		s := m.items[m.cursor].Session
+		if s.TmuxSession != "" {
+			if panes, err := m.tmuxC.ListPanes(s.TmuxSession); err == nil {
+				m.panes = panes
+			}
+			if out, err := m.tmuxC.CapturePaneOutput(s.TmuxSession); err == nil {
+				m.output = out
+			}
+		}
+	}
 	return nil
 }
 
-func (m *Model) Items() []ListItem { return m.items }
-func (m *Model) Cursor() int       { return m.cursor }
-func (m *Model) Mode() string      { return m.mode }
+func (m *Model) Items() []ListItem  { return m.items }
+func (m *Model) Cursor() int        { return m.cursor }
+func (m *Model) Mode() string       { return m.mode }
+func (m *Model) Panes() []tmux.Pane { return m.panes }
+func (m *Model) Output() string     { return m.output }
+func (m *Model) ViewFull() bool     { return m.viewFull }
 
 func (m *Model) Init() tea.Cmd {
 	if err := m.Reload(); err != nil {
