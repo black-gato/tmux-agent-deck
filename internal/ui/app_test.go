@@ -225,6 +225,51 @@ func TestReloadFetchesOutputForSelectedSession(t *testing.T) {
 	}
 }
 
+func TestVTogglesFullScreen(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	m := ui.NewModel(conn, nil, nil)
+	m.Reload()
+
+	if m.ViewFull() {
+		t.Fatal("viewFull should start false")
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'v'}})
+	if !m.ViewFull() {
+		t.Error("viewFull should be true after v")
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'v'}})
+	if m.ViewFull() {
+		t.Error("viewFull should be false after second v")
+	}
+}
+
+func TestEOnSessionOpensEditNotes(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	db.CreateSession(conn, db.Session{
+		ID: "s1", Title: "my-app", GroupPath: "my-sessions",
+		ProjectPath: "/p", Tool: "claude", Status: "stopped", CreatedAt: 1000,
+	})
+	m := ui.NewModel(conn, nil, nil)
+	m.Reload()
+	// cursor 0 = group, move to session
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}})
+	if m.Mode() != "edit-notes" {
+		t.Errorf("expected mode edit-notes, got %q", m.Mode())
+	}
+}
+
+func TestEOnGroupHasNoEffect(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	m := ui.NewModel(conn, nil, nil)
+	m.Reload()
+	// cursor 0 = group
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}})
+	if m.Mode() != "" {
+		t.Errorf("e on group should not change mode, got %q", m.Mode())
+	}
+}
+
 func TestEnterOnRunningSessionAttachesWithoutRestart(t *testing.T) {
 	conn := testutil.OpenTestDB(t)
 	fake := testutil.NewFakeTmuxClient()

@@ -160,6 +160,13 @@ func (m *Model) updateNavigation(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			m.Reload()
 		}
+	case "toggle-full":
+		m.viewFull = !m.viewFull
+	case "edit-notes":
+		if m.cursor < len(m.items) && m.items[m.cursor].Kind == "session" {
+			m.mode = "edit-notes"
+			m.dialog = dialogState{prompt: "", value: m.items[m.cursor].Session.Notes}
+		}
 	case "quit":
 		if m.poller != nil {
 			m.poller.Stop()

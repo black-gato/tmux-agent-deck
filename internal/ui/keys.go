@@ -18,6 +18,8 @@ var runeMap = map[rune]string{
 	'r': "rename",
 	'd': "delete",
 	'q': "quit",
+	'v': "toggle-full",
+	'e': "edit-notes",
 }
 
 func actionForKey(msg tea.KeyMsg) string {
