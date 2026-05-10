@@ -590,6 +590,129 @@ func TestForkSessionClonesFields(t *testing.T) {
 	}
 }
 
+func TestBroadcastDirectGroup(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	fake := testutil.NewFakeTmuxClient()
+
+	db.CreateGroup(conn, db.Group{Path: "my-sessions/sub", Name: "sub", DefaultTool: "claude", Expanded: true})
+
+	db.CreateSession(conn, db.Session{
+		ID: "s1", Title: "a", GroupPath: "my-sessions",
+		TmuxSession: "ad-s1", ProjectPath: "/p", Tool: "claude",
+		Status: "running", CreatedAt: 1000,
+	})
+	fake.Sessions["ad-s1"] = "> "
+	db.CreateSession(conn, db.Session{
+		ID: "s2", Title: "b", GroupPath: "my-sessions",
+		TmuxSession: "ad-s2", ProjectPath: "/p", Tool: "claude",
+		Status: "running", CreatedAt: 1001,
+	})
+	fake.Sessions["ad-s2"] = "> "
+	db.CreateSession(conn, db.Session{
+		ID: "s3", Title: "c", GroupPath: "my-sessions/sub",
+		TmuxSession: "ad-s3", ProjectPath: "/p", Tool: "claude",
+		Status: "running", CreatedAt: 1002,
+	})
+	fake.Sessions["ad-s3"] = "> "
+
+	m := ui.NewModel(conn, fake, nil)
+	m.Reload()
+	// cursor=0 is the "my-sessions" group
+
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'b'}})
+	// scope=false by default (this group only)
+	for _, r := range "ping" {
+		m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	if len(fake.SentKeys) != 2 {
+		t.Fatalf("expected 2 SendKeys calls (direct group only), got %d", len(fake.SentKeys))
+	}
+	for _, sk := range fake.SentKeys {
+		if sk.Session == "ad-s3" {
+			t.Errorf("sub-group session ad-s3 should not receive direct-group broadcast")
+		}
+	}
+}
+
+func TestBroadcastIncludesSubGroups(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	fake := testutil.NewFakeTmuxClient()
+
+	db.CreateGroup(conn, db.Group{Path: "my-sessions/sub", Name: "sub", DefaultTool: "claude", Expanded: true})
+
+	db.CreateSession(conn, db.Session{
+		ID: "s1", Title: "a", GroupPath: "my-sessions",
+		TmuxSession: "ad-s1", ProjectPath: "/p", Tool: "claude",
+		Status: "running", CreatedAt: 1000,
+	})
+	fake.Sessions["ad-s1"] = "> "
+	db.CreateSession(conn, db.Session{
+		ID: "s2", Title: "b", GroupPath: "my-sessions/sub",
+		TmuxSession: "ad-s2", ProjectPath: "/p", Tool: "claude",
+		Status: "running", CreatedAt: 1001,
+	})
+	fake.Sessions["ad-s2"] = "> "
+
+	m := ui.NewModel(conn, fake, nil)
+	m.Reload()
+
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'b'}})
+	m.Update(tea.KeyMsg{Type: tea.KeyTab}) // toggle to include sub-groups
+	for _, r := range "ping" {
+		m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	if len(fake.SentKeys) != 2 {
+		t.Fatalf("expected 2 SendKeys calls (group + sub-group), got %d", len(fake.SentKeys))
+	}
+	sent := map[string]bool{}
+	for _, sk := range fake.SentKeys {
+		sent[sk.Session] = true
+	}
+	if !sent["ad-s1"] {
+		t.Error("ad-s1 (direct group) should receive broadcast")
+	}
+	if !sent["ad-s2"] {
+		t.Error("ad-s2 (sub-group) should receive broadcast")
+	}
+}
+
+func TestBroadcastSkipsNonRunning(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	fake := testutil.NewFakeTmuxClient()
+
+	db.CreateSession(conn, db.Session{
+		ID: "s1", Title: "a", GroupPath: "my-sessions",
+		TmuxSession: "ad-s1", ProjectPath: "/p", Tool: "claude",
+		Status: "running", CreatedAt: 1000,
+	})
+	fake.Sessions["ad-s1"] = "> "
+	db.CreateSession(conn, db.Session{
+		ID: "s2", Title: "b", GroupPath: "my-sessions",
+		TmuxSession: "ad-s2", ProjectPath: "/p", Tool: "claude",
+		Status: "stopped", CreatedAt: 1001,
+	})
+
+	m := ui.NewModel(conn, fake, nil)
+	m.Reload()
+
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'b'}})
+	for _, r := range "ping" {
+		m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	if len(fake.SentKeys) != 1 {
+		t.Fatalf("expected 1 SendKeys call (running only), got %d", len(fake.SentKeys))
+	}
+	if fake.SentKeys[0].Session != "ad-s1" {
+		t.Errorf("expected ad-s1, got %q", fake.SentKeys[0].Session)
+	}
+}
+
 func TestCyclePaneAdvancesIndex(t *testing.T) {
 	conn := testutil.OpenTestDB(t)
 	fake := testutil.NewFakeTmuxClient()
