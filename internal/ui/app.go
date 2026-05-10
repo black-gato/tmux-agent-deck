@@ -7,6 +7,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/black-gato/tmux-agent-deck/internal/db"
 	"github.com/black-gato/tmux-agent-deck/internal/state"
 	"github.com/black-gato/tmux-agent-deck/internal/tmux"
@@ -277,7 +278,7 @@ func (m *Model) RenderDetailPanel(w, h int) string {
 	lines = append(lines, " "+renderPaneList(m.panes))
 
 	const sessionHeaderLines = 4
-	const notesLines = 4
+	const notesLines = 5
 	outputH := h - sessionHeaderLines - notesLines - 1
 	if outputH < 0 {
 		outputH = 0
@@ -359,11 +360,11 @@ func tailLines(output string, n int) []string {
 }
 
 func padRight(s string, width int) string {
-	runeLen := len([]rune(s))
-	if runeLen >= width {
+	visual := lipgloss.Width(s)
+	if visual >= width {
 		return s
 	}
-	return s + strings.Repeat(" ", width-runeLen)
+	return s + strings.Repeat(" ", width-visual)
 }
 
 // ensureStarted returns the tmux session name for s, spawning one if needed.
