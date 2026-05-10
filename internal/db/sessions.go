@@ -20,9 +20,9 @@ type Session struct {
 
 func CreateSession(conn *sql.DB, s Session) error {
 	_, err := conn.Exec(
-		`INSERT INTO sessions (id, title, group_path, tmux_session, project_path, tool, status, created_at, last_active)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		s.ID, s.Title, s.GroupPath, s.TmuxSession, s.ProjectPath, s.Tool, s.Status, s.CreatedAt, s.LastActive,
+		`INSERT INTO sessions (id, title, group_path, tmux_session, project_path, tool, status, created_at, last_active, notes)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		s.ID, s.Title, s.GroupPath, s.TmuxSession, s.ProjectPath, s.Tool, s.Status, s.CreatedAt, s.LastActive, s.Notes,
 	)
 	return err
 }
