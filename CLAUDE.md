@@ -107,4 +107,15 @@ go build -o tmux-agent-deck .
 
 See `docs/superpowers/specs/` for approved designs and `docs/superpowers/plans/` for implementation plans.
 
-**Split panel TUI** (`docs/superpowers/specs/2026-05-09-split-panel-tui-design.md`) — plan not yet written. Adds a persistent 35/65 split layout with a detail panel showing session name, group, pane programs, live output, and inline-editable notes.
+**Split panel TUI** (`docs/superpowers/specs/2026-05-09-split-panel-tui-design.md`, plan: `docs/superpowers/plans/2026-05-10-split-panel-tui.md`) — 6 of 9 tasks remain. Adds a persistent 35/65 split layout with a detail panel showing session name, group, pane programs, live output, and inline-editable notes.
+
+## Roadmap
+
+See `docs/superpowers/specs/2026-05-10-roadmap.md` for the full product roadmap.
+
+After the split panel TUI, planned milestones in order:
+1. **M1 Interaction Primitives** — Send to pane (`x`), Fork session (`f`), Broadcast to group (`b`)
+2. **M2 Observability** — Context window %, waiting timers, desktop notifications, output search
+3. **M3 Fleet Management** — Multi-select, bulk ops, archive/restore, tags
+4. **M4 Session Configuration** — Project path picker, tool selection, group defaults, startup scripts
+5. **M5 Polish** — Session filter, help overlay, onboarding, configurable poll, headless mode
