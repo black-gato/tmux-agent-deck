@@ -271,7 +271,7 @@ func (m *Model) renderAppHeader() string {
 }
 
 func renderFooter() string {
-	return " Enter Attach  v Expand output  e Notes  n New  g Group  d Delete  q Quit"
+	return " Enter Attach  x Send  f Fork  b Broadcast  v Output  e Notes  n New  d Delete  q Quit"
 }
 
 func tick() tea.Cmd {
