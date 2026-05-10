@@ -6,10 +6,6 @@ import (
 	"github.com/black-gato/tmux-agent-deck/internal/tmux"
 )
 
-// FakeTmuxClient implements tmux.ClientIface for tests.
-// Configure Sessions to control which sessions "exist".
-// Configure Panes to control per-session pane lists.
-// NewSessionCalls and AttachCalls record what was called.
 type FakeTmuxClient struct {
 	Sessions        map[string]string
 	Panes           map[string][]tmux.Pane
