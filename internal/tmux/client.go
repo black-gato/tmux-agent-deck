@@ -3,9 +3,20 @@ package tmux
 import (
 	"bytes"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 )
+
+// ClientIface is the full tmux capability surface used by the app.
+type ClientIface interface {
+	NewSession(name, startDir, command string) error
+	AttachSession(name string) error
+	KillSession(name string) error
+	SessionExists(name string) (bool, error)
+	CapturePaneOutput(name string) (string, error)
+	ListSessions() ([]string, error)
+}
 
 type Client struct{}
 
@@ -22,7 +33,10 @@ func (c *Client) NewSession(name, startDir, command string) error {
 }
 
 func (c *Client) AttachSession(name string) error {
-	return runCmd("tmux", "attach-session", "-t", name)
+	if os.Getenv("TMUX") != "" {
+		return runInteractive("tmux", "switch-client", "-t", name)
+	}
+	return runInteractive("tmux", "attach-session", "-t", name)
 }
 
 func (c *Client) KillSession(name string) error {
@@ -68,6 +82,14 @@ func (c *Client) ListSessions() ([]string, error) {
 
 func runCmd(name string, args ...string) error {
 	return exec.Command(name, args...).Run()
+}
+
+func runInteractive(name string, args ...string) error {
+	cmd := exec.Command(name, args...)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
 }
 
 func cmdOutput(name string, args ...string) ([]byte, error) {

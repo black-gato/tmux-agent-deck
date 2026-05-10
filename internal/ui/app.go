@@ -2,6 +2,7 @@ package ui
 
 import (
 	"database/sql"
+	"fmt"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -13,21 +14,22 @@ import (
 type tickMsg struct{}
 
 type Model struct {
-	conn     *sql.DB
-	tmuxC    *tmux.Client
-	poller   *state.Poller
-	groups   []db.Group
-	sessions []db.Session
-	items    []ListItem
-	cursor   int
-	width    int
-	height   int
-	mode     string // "", "new-session", "new-group", "rename", "move"
-	dialog   dialogState
-	err      error
+	conn          *sql.DB
+	tmuxC         tmux.ClientIface
+	poller        *state.Poller
+	groups        []db.Group
+	sessions      []db.Session
+	items         []ListItem
+	cursor        int
+	width         int
+	height        int
+	mode          string // "", "new-session", "new-group", "rename", "move"
+	dialog        dialogState
+	err           error
+	PendingAttach string // tmux session name to attach after TUI exits
 }
 
-func NewModel(conn *sql.DB, tc *tmux.Client, poller *state.Poller) *Model {
+func NewModel(conn *sql.DB, tc tmux.ClientIface, poller *state.Poller) *Model {
 	return &Model{conn: conn, tmuxC: tc, poller: poller}
 }
 
@@ -100,8 +102,17 @@ func (m *Model) updateNavigation(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "attach":
 		if m.cursor < len(m.items) {
 			item := m.items[m.cursor]
-			if item.Kind == "session" && m.tmuxC != nil && item.Session.TmuxSession != "" {
-				m.tmuxC.AttachSession(item.Session.TmuxSession)
+			if item.Kind == "session" {
+				tmuxName, err := m.ensureStarted(item.Session)
+				if err != nil {
+					m.err = err
+					break
+				}
+				m.PendingAttach = tmuxName
+				if m.poller != nil {
+					m.poller.Stop()
+				}
+				return m, tea.Quit
 			}
 		}
 	case "new-session":
@@ -154,4 +165,21 @@ func tick() tea.Cmd {
 		time.Sleep(time.Second)
 		return tickMsg{}
 	}
+}
+
+// ensureStarted returns the tmux session name for s, spawning one if needed.
+func (m *Model) ensureStarted(s *db.Session) (string, error) {
+	if s.TmuxSession != "" {
+		exists, err := m.tmuxC.SessionExists(s.TmuxSession)
+		if err == nil && exists {
+			return s.TmuxSession, nil
+		}
+	}
+	tmuxName := fmt.Sprintf("ad-%s", s.ID[:8])
+	if err := m.tmuxC.NewSession(tmuxName, s.ProjectPath, s.Tool); err != nil {
+		return "", fmt.Errorf("start session: %w", err)
+	}
+	_ = db.UpdateSessionTmuxName(m.conn, s.ID, tmuxName)
+	_ = db.UpdateSessionStatus(m.conn, s.ID, "waiting")
+	return tmuxName, nil
 }

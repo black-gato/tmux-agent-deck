@@ -128,3 +128,65 @@ func TestNewGroupDialogCreatesGroup(t *testing.T) {
 		t.Errorf("group work/frontend not created")
 	}
 }
+
+func TestEnterOnUnstartedSessionAutoStarts(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	fake := testutil.NewFakeTmuxClient()
+	m := ui.NewModel(conn, fake, nil)
+
+	db.CreateSession(conn, db.Session{
+		ID:          "abc12345-0000-0000-0000-000000000000",
+		Title:       "my-app",
+		GroupPath:   "my-sessions",
+		ProjectPath: "/tmp",
+		Tool:        "claude",
+		Status:      "stopped",
+		CreatedAt:   1000,
+	})
+	m.Reload()
+
+	// Navigate to the session (index 1: group is 0, session is 1)
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	if len(fake.NewSessionCalls) != 1 {
+		t.Fatalf("expected 1 NewSession call, got %d", len(fake.NewSessionCalls))
+	}
+	if m.PendingAttach == "" {
+		t.Errorf("PendingAttach should be set after Enter on unstarted session")
+	}
+	// DB should be updated with tmux name
+	s, _ := db.GetSession(conn, "abc12345-0000-0000-0000-000000000000")
+	if s.TmuxSession == "" {
+		t.Errorf("TmuxSession should be persisted after auto-start")
+	}
+}
+
+func TestEnterOnRunningSessionAttachesWithoutRestart(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	fake := testutil.NewFakeTmuxClient()
+	fake.Sessions["ad-existing"] = "> "
+	m := ui.NewModel(conn, fake, nil)
+
+	db.CreateSession(conn, db.Session{
+		ID:          "abc12345-0000-0000-0000-000000000001",
+		Title:       "running-app",
+		GroupPath:   "my-sessions",
+		TmuxSession: "ad-existing",
+		ProjectPath: "/tmp",
+		Tool:        "claude",
+		Status:      "waiting",
+		CreatedAt:   1000,
+	})
+	m.Reload()
+
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	if len(fake.NewSessionCalls) != 0 {
+		t.Errorf("should not spawn new session when one already exists, got %d calls", len(fake.NewSessionCalls))
+	}
+	if m.PendingAttach != "ad-existing" {
+		t.Errorf("PendingAttach: got %q want ad-existing", m.PendingAttach)
+	}
+}

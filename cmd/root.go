@@ -72,6 +72,16 @@ func launchTUI(conn *sql.DB) error {
 
 	m := ui.NewModel(conn, tc, poller)
 	p := tea.NewProgram(m, tea.WithAltScreen())
-	_, err := p.Run()
-	return err
+	finalModel, err := p.Run()
+	if err != nil {
+		return err
+	}
+	if fm, ok := finalModel.(*ui.Model); ok && fm.PendingAttach != "" {
+		exists, _ := tc.SessionExists(fm.PendingAttach)
+		if !exists {
+			return fmt.Errorf("tmux session %q exited before attach", fm.PendingAttach)
+		}
+		return tc.AttachSession(fm.PendingAttach)
+	}
+	return nil
 }
