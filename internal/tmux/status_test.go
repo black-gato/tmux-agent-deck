@@ -82,6 +82,16 @@ func TestParseBindingCommand(t *testing.T) {
 			input: "   ",
 			want:  "",
 		},
+		{
+			name:  "q in command is not confused with key",
+			input: "bind-key -T prefix q send-keys q Enter",
+			want:  "send-keys q Enter",
+		},
+		{
+			name:  "non-empty but no q sentinel returns empty",
+			input: "bind-key -T root x some-command",
+			want:  "",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
