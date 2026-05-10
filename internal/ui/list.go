@@ -69,7 +69,6 @@ func appendGroupItems(g db.Group, allGroups []db.Group, sessionsByGroup map[stri
 	return items
 }
 
-// RenderList renders the session list into a column of the given width and height.
 func RenderList(items []ListItem, cursor, width, height int) string {
 	var sb strings.Builder
 	sb.WriteString("SESSIONS\n")
