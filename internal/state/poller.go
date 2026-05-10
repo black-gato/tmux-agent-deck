@@ -86,7 +86,7 @@ func (p *Poller) PollOnce() {
 			p.lastChange[s.ID] = lc
 		}
 
-		newStatus := tmux.DetectStatus(out, lc)
+		newStatus := tmux.DetectStatus(out, lc, s.Tool)
 		if newStatus != s.Status {
 			p.lastChange[s.ID] = time.Now()
 			if err := db.UpdateSessionStatus(p.conn, s.ID, newStatus); err != nil {

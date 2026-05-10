@@ -17,15 +17,38 @@ const (
 
 var spinnerChars = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
-func DetectStatus(output string, lastChange time.Time) Status {
+func lastLine(s string) string {
+	if idx := strings.LastIndex(s, "\n"); idx >= 0 {
+		return strings.TrimRight(s[idx+1:], " \t")
+	}
+	return s
+}
+
+func DetectStatus(output string, lastChange time.Time, tool string) Status {
 	trimmed := strings.TrimRight(output, " \t")
 
-	// waiting: Claude prompt visible at end of pane
-	if strings.HasSuffix(trimmed, "> ") || strings.HasSuffix(trimmed, ">") {
-		return StatusWaiting
+	switch tool {
+	case "aider":
+		if strings.HasSuffix(trimmed, "aider> ") || strings.HasSuffix(trimmed, "aider>") {
+			return StatusWaiting
+		}
+	case "copilot":
+		if strings.HasSuffix(trimmed, "❯ ") || strings.HasSuffix(trimmed, "❯") ||
+			strings.HasSuffix(trimmed, "> ") || strings.HasSuffix(trimmed, ">") {
+			return StatusWaiting
+		}
+	default: // "claude", "", and any other tool
+		ll := lastLine(trimmed)
+		// Shell prompts: last line ends with $ or #
+		if strings.HasSuffix(ll, "$") || strings.HasSuffix(ll, "#") {
+			return StatusWaiting
+		}
+		// claude-style prompt: last line is a standalone >
+		if ll == ">" {
+			return StatusWaiting
+		}
 	}
 
-	// running: spinner or thinking text in tail of output
 	tail := output
 	if len(tail) > 200 {
 		tail = tail[len(tail)-200:]
@@ -39,7 +62,6 @@ func DetectStatus(output string, lastChange time.Time) Status {
 		return StatusRunning
 	}
 
-	// idle: nothing recognizable, and no change for >30s
 	if time.Since(lastChange) > 30*time.Second {
 		return StatusIdle
 	}
