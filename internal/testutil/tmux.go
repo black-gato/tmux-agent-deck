@@ -6,12 +6,17 @@ import (
 	"github.com/black-gato/tmux-agent-deck/internal/tmux"
 )
 
+// FakeTmuxClient implements tmux.ClientIface for tests.
+// Sessions maps session name → pane output.
+// Panes maps session name → pane list.
+// SentKeys records all SendKeys calls.
 type FakeTmuxClient struct {
 	Sessions        map[string]string
 	Panes           map[string][]tmux.Pane
 	NewSessionCalls []NewSessionCall
 	AttachCalls     []string
 	KillCalls       []string
+	SentKeys        []SentKeysCall
 	NewSessionErr   error
 	AttachErr       error
 }
@@ -20,6 +25,12 @@ type NewSessionCall struct {
 	Name    string
 	Dir     string
 	Command string
+}
+
+type SentKeysCall struct {
+	Session   string
+	PaneIndex int
+	Keys      string
 }
 
 func NewFakeTmuxClient() *FakeTmuxClient {
@@ -76,4 +87,9 @@ func (f *FakeTmuxClient) ListPanes(session string) ([]tmux.Pane, error) {
 		return []tmux.Pane{}, nil
 	}
 	return panes, nil
+}
+
+func (f *FakeTmuxClient) SendKeys(session string, paneIndex int, keys string) error {
+	f.SentKeys = append(f.SentKeys, SentKeysCall{Session: session, PaneIndex: paneIndex, Keys: keys})
+	return nil
 }
