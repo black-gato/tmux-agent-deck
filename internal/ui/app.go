@@ -3,6 +3,7 @@ package ui
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -191,6 +192,114 @@ func tick() tea.Cmd {
 		time.Sleep(time.Second)
 		return tickMsg{}
 	}
+}
+
+func (m *Model) RenderDetailPanel(w, h int) string {
+	if m.cursor >= len(m.items) || m.items[m.cursor].Kind != "session" {
+		return ""
+	}
+	s := m.items[m.cursor].Session
+
+	var lines []string
+
+	lines = append(lines, sectionHeader("SESSION", w))
+
+	sym := statusSymbol[s.Status]
+	if sym == "" {
+		sym = "—"
+	}
+	lines = append(lines, fmt.Sprintf(" %s  %s", s.Title, sym))
+	lines = append(lines, fmt.Sprintf(" group: %s", s.GroupPath))
+	lines = append(lines, " "+renderPaneList(m.panes))
+
+	const sessionHeaderLines = 4
+	const notesLines = 4
+	outputH := h - sessionHeaderLines - notesLines - 1
+	if outputH < 0 {
+		outputH = 0
+	}
+	lines = append(lines, sectionHeader("OUTPUT", w))
+	outputTail := tailLines(m.output, outputH)
+	for _, ol := range outputTail {
+		lines = append(lines, " "+truncate(ol, w-1))
+	}
+	for i := len(outputTail); i < outputH; i++ {
+		lines = append(lines, "")
+	}
+
+	lines = append(lines, sectionHeader("NOTES", w))
+	var noteText string
+	if s.Notes != "" {
+		noteText = s.Notes
+	} else {
+		noteText = "No notes"
+	}
+	noteRunes := []rune(noteText)
+	for row := 0; row < 3; row++ {
+		start := row * (w - 1)
+		if start >= len(noteRunes) {
+			lines = append(lines, "")
+			continue
+		}
+		end := start + (w - 1)
+		if end > len(noteRunes) {
+			end = len(noteRunes)
+		}
+		lines = append(lines, " "+string(noteRunes[start:end]))
+	}
+	if m.mode == "edit-notes" {
+		lines = append(lines, " > "+m.dialog.value)
+	} else {
+		lines = append(lines, " e edit")
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+func sectionHeader(title string, width int) string {
+	dashes := width - len([]rune(title)) - 2
+	if dashes < 0 {
+		dashes = 0
+	}
+	return title + " " + strings.Repeat("─", dashes)
+}
+
+func renderPaneList(panes []tmux.Pane) string {
+	if len(panes) == 0 {
+		return ""
+	}
+	var parts []string
+	for i, p := range panes {
+		entry := fmt.Sprintf("[%d] %s", p.Index, p.Command)
+		if i == 0 {
+			parts = append(parts, entry)
+		} else {
+			parts = append(parts, dimStyle.Render(entry))
+		}
+	}
+	return strings.Join(parts, "  ")
+}
+
+func tailLines(output string, n int) []string {
+	if n <= 0 || output == "" {
+		return nil
+	}
+	all := strings.Split(output, "\n")
+	if len(all) > 0 && all[len(all)-1] == "" {
+		all = all[:len(all)-1]
+	}
+	if len(all) <= n {
+		return all
+	}
+	return all[len(all)-n:]
+}
+
+func padRight(s string, width int) string {
+	runeLen := len([]rune(s))
+	if runeLen >= width {
+		return s
+	}
+	return s + strings.Repeat(" ", width-runeLen)
 }
 
 // ensureStarted returns the tmux session name for s, spawning one if needed.

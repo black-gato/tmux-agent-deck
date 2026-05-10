@@ -322,6 +322,75 @@ func TestEditNotesEscDiscards(t *testing.T) {
 	}
 }
 
+func TestDetailPanelShowsSessionTitle(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	fake := testutil.NewFakeTmuxClient()
+	fake.Sessions["ad-s1"] = "some output\n> "
+
+	db.CreateSession(conn, db.Session{
+		ID: "s1", Title: "my-feature", GroupPath: "my-sessions",
+		TmuxSession: "ad-s1", ProjectPath: "/p", Tool: "claude",
+		Status: "running", CreatedAt: 1000,
+	})
+	m := ui.NewModel(conn, fake, nil)
+	m.Reload()
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	m.Reload()
+
+	panel := m.RenderDetailPanel(60, 20)
+	if !strings.Contains(panel, "my-feature") {
+		t.Errorf("detail panel missing session title, got:\n%s", panel)
+	}
+}
+
+func TestDetailPanelShowsNotes(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	fake := testutil.NewFakeTmuxClient()
+	fake.Sessions["ad-s1"] = "> "
+
+	db.CreateSession(conn, db.Session{
+		ID: "s1", Title: "my-feature", GroupPath: "my-sessions",
+		TmuxSession: "ad-s1", ProjectPath: "/p", Tool: "claude",
+		Status: "waiting", CreatedAt: 1000,
+	})
+	db.UpdateSessionNotes(conn, "s1", "check divergences first")
+
+	m := ui.NewModel(conn, fake, nil)
+	m.Reload()
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	m.Reload()
+
+	panel := m.RenderDetailPanel(60, 20)
+	if !strings.Contains(panel, "check divergences first") {
+		t.Errorf("detail panel missing notes, got:\n%s", panel)
+	}
+}
+
+func TestDetailPanelShowsPaneList(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	fake := testutil.NewFakeTmuxClient()
+	fake.Sessions["ad-s1"] = "> "
+	fake.Panes["ad-s1"] = []tmux.Pane{{Index: 0, Command: "claude"}, {Index: 1, Command: "bash"}}
+
+	db.CreateSession(conn, db.Session{
+		ID: "s1", Title: "my-feature", GroupPath: "my-sessions",
+		TmuxSession: "ad-s1", ProjectPath: "/p", Tool: "claude",
+		Status: "running", CreatedAt: 1000,
+	})
+	m := ui.NewModel(conn, fake, nil)
+	m.Reload()
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	m.Reload()
+
+	panel := m.RenderDetailPanel(60, 20)
+	if !strings.Contains(panel, "[0] claude") {
+		t.Errorf("detail panel missing pane list, got:\n%s", panel)
+	}
+	if !strings.Contains(panel, "[1] bash") {
+		t.Errorf("detail panel missing pane [1], got:\n%s", panel)
+	}
+}
+
 func TestEnterOnRunningSessionAttachesWithoutRestart(t *testing.T) {
 	conn := testutil.OpenTestDB(t)
 	fake := testutil.NewFakeTmuxClient()
