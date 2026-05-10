@@ -75,7 +75,3 @@ dead should be session that aren't responding
 
 ## General Notes
 
-### Known Backlog Issues
-
-- **Split-panel resize shift/tear** — In split-panel mode (non-full-screen), resizing the terminal still causes visual shifting and tearing. Full-screen mode (`v`) is unaffected. Root cause is likely bubbletea's diff renderer not handling mid-layout width changes cleanly across the `│` divider. Deferred — not blocking.
-
