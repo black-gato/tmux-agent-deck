@@ -18,6 +18,7 @@ type ClientIface interface {
 	SessionExists(name string) (bool, error)
 	CapturePaneOutput(name string) (string, error)
 	ListSessions() ([]string, error)
+	ListPanes(session string) ([]Pane, error)
 }
 
 type Client struct{}
@@ -83,6 +84,41 @@ func (c *Client) ListSessions() ([]string, error) {
 		}
 	}
 	return names, nil
+}
+
+type Pane struct {
+	Index   int
+	Command string
+}
+
+func (c *Client) ListPanes(session string) ([]Pane, error) {
+	out, err := cmdOutput("tmux", "list-panes", "-t", session, "-F", "#{pane_index} #{pane_current_command}")
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
+			return []Pane{}, nil
+		}
+		return nil, fmt.Errorf("list-panes %q: %w", session, err)
+	}
+	return parsePanesOutput(string(out)), nil
+}
+
+func parsePanesOutput(out string) []Pane {
+	var panes []Pane
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		if line == "" {
+			continue
+		}
+		var idx int
+		var cmd string
+		if _, err := fmt.Sscanf(line, "%d %s", &idx, &cmd); err != nil {
+			continue
+		}
+		panes = append(panes, Pane{Index: idx, Command: cmd})
+	}
+	if panes == nil {
+		return []Pane{}
+	}
+	return panes
 }
 
 // ParseBindingCommand extracts the command from a tmux list-keys output line.
