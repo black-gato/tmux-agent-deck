@@ -545,6 +545,51 @@ func TestSendPaneNoOpWithoutTmuxSession(t *testing.T) {
 	}
 }
 
+func TestForkSessionClonesFields(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+
+	db.CreateSession(conn, db.Session{
+		ID: "s1", Title: "original", GroupPath: "my-sessions",
+		TmuxSession: "ad-s1", ProjectPath: "/my/project", Tool: "aider",
+		Status: "running", CreatedAt: 1000,
+	})
+	m := ui.NewModel(conn, nil, nil)
+	m.Reload()
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'f'}})
+	for _, r := range "forked" {
+		m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	sessions, err := db.ListSessions(conn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var forked *db.Session
+	for i := range sessions {
+		if sessions[i].Title == "forked" {
+			forked = &sessions[i]
+		}
+	}
+	if forked == nil {
+		t.Fatal("forked session not found in DB")
+	}
+	if forked.ProjectPath != "/my/project" {
+		t.Errorf("ProjectPath: got %q want /my/project", forked.ProjectPath)
+	}
+	if forked.Tool != "aider" {
+		t.Errorf("Tool: got %q want aider", forked.Tool)
+	}
+	if forked.GroupPath != "my-sessions" {
+		t.Errorf("GroupPath: got %q want my-sessions", forked.GroupPath)
+	}
+	if forked.Status != "stopped" {
+		t.Errorf("Status: got %q want stopped", forked.Status)
+	}
+}
+
 func TestCyclePaneAdvancesIndex(t *testing.T) {
 	conn := testutil.OpenTestDB(t)
 	fake := testutil.NewFakeTmuxClient()
