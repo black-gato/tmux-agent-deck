@@ -19,6 +19,7 @@ type ClientIface interface {
 	CapturePaneOutput(name string) (string, error)
 	ListSessions() ([]string, error)
 	ListPanes(session string) ([]Pane, error)
+	SendKeys(session string, paneIndex int, keys string) error
 }
 
 type Client struct{}
@@ -100,6 +101,17 @@ func (c *Client) ListPanes(session string) ([]Pane, error) {
 		return nil, fmt.Errorf("list-panes %q: %w", session, err)
 	}
 	return parsePanesOutput(string(out)), nil
+}
+
+func paneTarget(session string, paneIndex int) string {
+	return fmt.Sprintf("%s:%d", session, paneIndex)
+}
+
+func (c *Client) SendKeys(session string, paneIndex int, keys string) error {
+	if keys == "" {
+		return nil
+	}
+	return runCmd("tmux", "send-keys", "-t", paneTarget(session, paneIndex), keys)
 }
 
 func parsePanesOutput(out string) []Pane {

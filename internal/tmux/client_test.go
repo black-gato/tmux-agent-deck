@@ -2,6 +2,23 @@ package tmux
 
 import "testing"
 
+func TestPaneTarget(t *testing.T) {
+	tests := []struct {
+		session string
+		pane    int
+		want    string
+	}{
+		{"mysession", 0, "mysession:0"},
+		{"ad-abc12345", 2, "ad-abc12345:2"},
+	}
+	for _, tc := range tests {
+		got := paneTarget(tc.session, tc.pane)
+		if got != tc.want {
+			t.Errorf("paneTarget(%q, %d) = %q, want %q", tc.session, tc.pane, got, tc.want)
+		}
+	}
+}
+
 func TestParsePanesOutput(t *testing.T) {
 	tests := []struct {
 		name  string
