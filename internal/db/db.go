@@ -12,9 +12,14 @@ func Open(path string) (*sql.DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)
 	}
+	conn.SetMaxOpenConns(1)
 	if err := conn.Ping(); err != nil {
 		conn.Close()
 		return nil, fmt.Errorf("ping sqlite: %w", err)
+	}
+	if _, err := conn.Exec(`PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;`); err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("configure sqlite: %w", err)
 	}
 	if err := migrate(conn); err != nil {
 		conn.Close()
