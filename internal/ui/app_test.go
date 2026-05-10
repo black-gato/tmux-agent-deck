@@ -457,6 +457,94 @@ func TestEnterOnRunningSessionAttachesWithoutRestart(t *testing.T) {
 	}
 }
 
+func TestSendPaneCallsSendKeys(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	fake := testutil.NewFakeTmuxClient()
+	fake.Sessions["ad-s1"] = "> "
+	fake.Panes["ad-s1"] = []tmux.Pane{{Index: 0, Command: "claude"}}
+
+	db.CreateSession(conn, db.Session{
+		ID: "s1", Title: "my-app", GroupPath: "my-sessions",
+		TmuxSession: "ad-s1", ProjectPath: "/p", Tool: "claude",
+		Status: "running", CreatedAt: 1000,
+	})
+	m := ui.NewModel(conn, fake, nil)
+	m.Reload()
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	m.Reload()
+
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
+	for _, r := range "hello" {
+		m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	if len(fake.SentKeys) != 1 {
+		t.Fatalf("expected 1 SendKeys call, got %d", len(fake.SentKeys))
+	}
+	if fake.SentKeys[0].Session != "ad-s1" {
+		t.Errorf("session: got %q want ad-s1", fake.SentKeys[0].Session)
+	}
+	if fake.SentKeys[0].Keys != "hello" {
+		t.Errorf("keys: got %q want hello", fake.SentKeys[0].Keys)
+	}
+	if fake.SentKeys[0].PaneIndex != 0 {
+		t.Errorf("pane: got %d want 0", fake.SentKeys[0].PaneIndex)
+	}
+}
+
+func TestSendPaneCtrlCharSent(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	fake := testutil.NewFakeTmuxClient()
+	fake.Sessions["ad-s1"] = "> "
+
+	db.CreateSession(conn, db.Session{
+		ID: "s1", Title: "my-app", GroupPath: "my-sessions",
+		TmuxSession: "ad-s1", ProjectPath: "/p", Tool: "claude",
+		Status: "running", CreatedAt: 1000,
+	})
+	m := ui.NewModel(conn, fake, nil)
+	m.Reload()
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	m.Reload()
+
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
+	m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	if len(fake.SentKeys) != 1 {
+		t.Fatalf("expected 1 SendKeys call, got %d", len(fake.SentKeys))
+	}
+	if fake.SentKeys[0].Keys != "C-c" {
+		t.Errorf("keys: got %q want C-c", fake.SentKeys[0].Keys)
+	}
+}
+
+func TestSendPaneNoOpWithoutTmuxSession(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	fake := testutil.NewFakeTmuxClient()
+
+	db.CreateSession(conn, db.Session{
+		ID: "s1", Title: "my-app", GroupPath: "my-sessions",
+		TmuxSession: "", ProjectPath: "/p", Tool: "claude",
+		Status: "stopped", CreatedAt: 1000,
+	})
+	m := ui.NewModel(conn, fake, nil)
+	m.Reload()
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	m.Reload()
+
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
+	for _, r := range "hello" {
+		m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	if len(fake.SentKeys) != 0 {
+		t.Errorf("expected no SendKeys calls, got %d", len(fake.SentKeys))
+	}
+}
+
 func TestCyclePaneAdvancesIndex(t *testing.T) {
 	conn := testutil.OpenTestDB(t)
 	fake := testutil.NewFakeTmuxClient()
