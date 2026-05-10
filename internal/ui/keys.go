@@ -7,6 +7,7 @@ var keyTypeMap = map[tea.KeyType]string{
 	tea.KeyDown:  "down",
 	tea.KeyEnter: "attach",
 	tea.KeySpace: "toggle",
+	tea.KeyTab:   "cycle-pane",
 }
 
 var runeMap = map[rune]string{
@@ -20,6 +21,9 @@ var runeMap = map[rune]string{
 	'q': "quit",
 	'v': "toggle-full",
 	'e': "edit-notes",
+	'x': "send-pane",
+	'f': "fork-session",
+	'b': "broadcast",
 }
 
 func actionForKey(msg tea.KeyMsg) string {
