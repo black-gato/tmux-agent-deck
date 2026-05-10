@@ -67,21 +67,26 @@ func openDB() (*sql.DB, error) {
 
 func launchTUI(conn *sql.DB) error {
 	tc := tmux.NewClient()
-	poller := state.New(conn, tc)
-	poller.Start()
+	for {
+		poller := state.New(conn, tc)
+		poller.Start()
 
-	m := ui.NewModel(conn, tc, poller)
-	p := tea.NewProgram(m, tea.WithAltScreen())
-	finalModel, err := p.Run()
-	if err != nil {
-		return err
-	}
-	if fm, ok := finalModel.(*ui.Model); ok && fm.PendingAttach != "" {
+		m := ui.NewModel(conn, tc, poller)
+		p := tea.NewProgram(m, tea.WithAltScreen())
+		finalModel, err := p.Run()
+		if err != nil {
+			return err
+		}
+		fm, ok := finalModel.(*ui.Model)
+		if !ok || fm.PendingAttach == "" {
+			return nil
+		}
 		exists, _ := tc.SessionExists(fm.PendingAttach)
 		if !exists {
 			return fmt.Errorf("tmux session %q exited before attach", fm.PendingAttach)
 		}
-		return tc.AttachSession(fm.PendingAttach)
+		if err := tc.AttachSession(fm.PendingAttach); err != nil {
+			return err
+		}
 	}
-	return nil
 }
