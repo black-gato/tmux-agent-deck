@@ -80,6 +80,22 @@ func (c *Client) ListSessions() ([]string, error) {
 	return names, nil
 }
 
+// ParseBindingCommand extracts the command from a tmux list-keys output line.
+// Input format: "bind-key [-r] -T prefix q <command>"
+// Returns "" if the input is empty or unparseable.
+func ParseBindingCommand(listKeysOutput string) string {
+	line := strings.TrimSpace(listKeysOutput)
+	if line == "" {
+		return ""
+	}
+	// Find " q " and take everything after it — the key is always "q" here.
+	idx := strings.Index(line, " q ")
+	if idx == -1 {
+		return ""
+	}
+	return strings.TrimSpace(line[idx+3:])
+}
+
 func runCmd(name string, args ...string) error {
 	return exec.Command(name, args...).Run()
 }
