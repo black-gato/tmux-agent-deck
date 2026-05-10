@@ -456,3 +456,66 @@ func TestEnterOnRunningSessionAttachesWithoutRestart(t *testing.T) {
 		t.Errorf("PendingAttach: got %q want ad-existing", m.PendingAttach)
 	}
 }
+
+func TestCyclePaneAdvancesIndex(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	fake := testutil.NewFakeTmuxClient()
+	fake.Sessions["ad-s1"] = "> "
+	fake.Panes["ad-s1"] = []tmux.Pane{
+		{Index: 0, Command: "claude"},
+		{Index: 1, Command: "bash"},
+		{Index: 2, Command: "nvim"},
+	}
+	db.CreateSession(conn, db.Session{
+		ID: "s1", Title: "a", GroupPath: "my-sessions",
+		TmuxSession: "ad-s1", ProjectPath: "/p", Tool: "claude",
+		Status: "running", CreatedAt: 1000,
+	})
+	m := ui.NewModel(conn, fake, nil)
+	m.Reload()
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	m.Reload()
+
+	if m.ActivePaneIdx() != 0 {
+		t.Fatalf("expected 0 initially, got %d", m.ActivePaneIdx())
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	if m.ActivePaneIdx() != 1 {
+		t.Errorf("expected 1 after first Tab, got %d", m.ActivePaneIdx())
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	if m.ActivePaneIdx() != 2 {
+		t.Errorf("expected 2 after second Tab, got %d", m.ActivePaneIdx())
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	if m.ActivePaneIdx() != 0 {
+		t.Errorf("expected wrap to 0 after third Tab, got %d", m.ActivePaneIdx())
+	}
+}
+
+func TestCyclePaneResetsOnReload(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	fake := testutil.NewFakeTmuxClient()
+	fake.Sessions["ad-s1"] = "> "
+	fake.Panes["ad-s1"] = []tmux.Pane{
+		{Index: 0, Command: "claude"},
+		{Index: 1, Command: "bash"},
+	}
+	db.CreateSession(conn, db.Session{
+		ID: "s1", Title: "a", GroupPath: "my-sessions",
+		TmuxSession: "ad-s1", ProjectPath: "/p", Tool: "claude",
+		Status: "running", CreatedAt: 1000,
+	})
+	m := ui.NewModel(conn, fake, nil)
+	m.Reload()
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	m.Reload()
+	m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	if m.ActivePaneIdx() != 1 {
+		t.Fatalf("expected 1 after Tab, got %d", m.ActivePaneIdx())
+	}
+	m.Reload()
+	if m.ActivePaneIdx() != 0 {
+		t.Errorf("expected reset to 0 after Reload, got %d", m.ActivePaneIdx())
+	}
+}

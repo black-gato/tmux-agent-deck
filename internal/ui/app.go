@@ -56,6 +56,7 @@ func (m *Model) Reload() error {
 	}
 	m.panes = nil
 	m.output = ""
+	m.activePaneIdx = 0
 	if m.tmuxC != nil && m.cursor < len(m.items) && m.items[m.cursor].Kind == "session" {
 		s := m.items[m.cursor].Session
 		if s.TmuxSession != "" {
@@ -70,12 +71,13 @@ func (m *Model) Reload() error {
 	return nil
 }
 
-func (m *Model) Items() []ListItem  { return m.items }
-func (m *Model) Cursor() int        { return m.cursor }
-func (m *Model) Mode() string       { return m.mode }
-func (m *Model) Panes() []tmux.Pane { return m.panes }
-func (m *Model) Output() string     { return m.output }
-func (m *Model) ViewFull() bool     { return m.viewFull }
+func (m *Model) Items() []ListItem    { return m.items }
+func (m *Model) Cursor() int          { return m.cursor }
+func (m *Model) Mode() string         { return m.mode }
+func (m *Model) Panes() []tmux.Pane   { return m.panes }
+func (m *Model) Output() string       { return m.output }
+func (m *Model) ViewFull() bool       { return m.viewFull }
+func (m *Model) ActivePaneIdx() int   { return m.activePaneIdx }
 
 func (m *Model) Init() tea.Cmd {
 	if err := m.Reload(); err != nil {
@@ -169,6 +171,25 @@ func (m *Model) updateNavigation(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.cursor < len(m.items) && m.items[m.cursor].Kind == "session" {
 			m.mode = "edit-notes"
 			m.dialog = dialogState{prompt: "", value: m.items[m.cursor].Session.Notes}
+		}
+	case "cycle-pane":
+		if len(m.panes) > 0 {
+			m.activePaneIdx = (m.activePaneIdx + 1) % len(m.panes)
+		}
+	case "send-pane":
+		if m.cursor < len(m.items) && m.items[m.cursor].Kind == "session" {
+			m.mode = "send-pane"
+			m.dialog = newDialogState("Send:")
+		}
+	case "fork-session":
+		if m.cursor < len(m.items) && m.items[m.cursor].Kind == "session" {
+			m.mode = "fork-session"
+			m.dialog = newDialogState("Fork title:")
+		}
+	case "broadcast":
+		if m.cursor < len(m.items) {
+			m.mode = "broadcast"
+			m.dialog = dialogState{scopeLabels: [2]string{"this group", "all sub-groups"}}
 		}
 	case "quit":
 		if m.poller != nil {
@@ -276,7 +297,7 @@ func (m *Model) RenderDetailPanel(w, h int) string {
 	}
 	lines = append(lines, fmt.Sprintf(" %s  %s", s.Title, sym))
 	lines = append(lines, fmt.Sprintf(" group: %s", s.GroupPath))
-	lines = append(lines, " "+renderPaneList(m.panes))
+	lines = append(lines, " "+renderPaneList(m.panes, m.activePaneIdx))
 
 	const sessionHeaderLines = 4
 	const notesLines = 5
@@ -330,15 +351,15 @@ func sectionHeader(title string, width int) string {
 	return title + " " + strings.Repeat("─", dashes)
 }
 
-func renderPaneList(panes []tmux.Pane) string {
+func renderPaneList(panes []tmux.Pane, activeIdx int) string {
 	if len(panes) == 0 {
 		return ""
 	}
 	var parts []string
 	for i, p := range panes {
 		entry := fmt.Sprintf("[%d] %s", p.Index, p.Command)
-		if i == 0 {
-			parts = append(parts, entry)
+		if i == activeIdx {
+			parts = append(parts, selectedStyle.Render(entry))
 		} else {
 			parts = append(parts, dimStyle.Render(entry))
 		}
