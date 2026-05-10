@@ -15,6 +15,7 @@ type Session struct {
 	Status      string
 	CreatedAt   int64
 	LastActive  int64
+	Notes       string
 }
 
 func CreateSession(conn *sql.DB, s Session) error {
@@ -29,9 +30,9 @@ func CreateSession(conn *sql.DB, s Session) error {
 func GetSession(conn *sql.DB, id string) (Session, error) {
 	var s Session
 	err := conn.QueryRow(
-		`SELECT id, title, group_path, tmux_session, project_path, tool, status, created_at, last_active
+		`SELECT id, title, group_path, tmux_session, project_path, tool, status, created_at, last_active, notes
 		 FROM sessions WHERE id = ?`, id,
-	).Scan(&s.ID, &s.Title, &s.GroupPath, &s.TmuxSession, &s.ProjectPath, &s.Tool, &s.Status, &s.CreatedAt, &s.LastActive)
+	).Scan(&s.ID, &s.Title, &s.GroupPath, &s.TmuxSession, &s.ProjectPath, &s.Tool, &s.Status, &s.CreatedAt, &s.LastActive, &s.Notes)
 	if err != nil {
 		return Session{}, fmt.Errorf("get session %q: %w", id, err)
 	}
@@ -41,9 +42,9 @@ func GetSession(conn *sql.DB, id string) (Session, error) {
 func GetSessionByTitle(conn *sql.DB, title string) (Session, error) {
 	var s Session
 	err := conn.QueryRow(
-		`SELECT id, title, group_path, tmux_session, project_path, tool, status, created_at, last_active
+		`SELECT id, title, group_path, tmux_session, project_path, tool, status, created_at, last_active, notes
 		 FROM sessions WHERE title = ? LIMIT 1`, title,
-	).Scan(&s.ID, &s.Title, &s.GroupPath, &s.TmuxSession, &s.ProjectPath, &s.Tool, &s.Status, &s.CreatedAt, &s.LastActive)
+	).Scan(&s.ID, &s.Title, &s.GroupPath, &s.TmuxSession, &s.ProjectPath, &s.Tool, &s.Status, &s.CreatedAt, &s.LastActive, &s.Notes)
 	if err != nil {
 		return Session{}, fmt.Errorf("get session by title %q: %w", title, err)
 	}
@@ -52,7 +53,7 @@ func GetSessionByTitle(conn *sql.DB, title string) (Session, error) {
 
 func ListSessions(conn *sql.DB) ([]Session, error) {
 	rows, err := conn.Query(
-		`SELECT id, title, group_path, tmux_session, project_path, tool, status, created_at, last_active
+		`SELECT id, title, group_path, tmux_session, project_path, tool, status, created_at, last_active, notes
 		 FROM sessions ORDER BY created_at DESC`,
 	)
 	if err != nil {
@@ -64,7 +65,7 @@ func ListSessions(conn *sql.DB) ([]Session, error) {
 
 func ListSessionsByGroup(conn *sql.DB, groupPath string) ([]Session, error) {
 	rows, err := conn.Query(
-		`SELECT id, title, group_path, tmux_session, project_path, tool, status, created_at, last_active
+		`SELECT id, title, group_path, tmux_session, project_path, tool, status, created_at, last_active, notes
 		 FROM sessions WHERE group_path = ? ORDER BY created_at DESC`, groupPath,
 	)
 	if err != nil {
@@ -97,6 +98,18 @@ func UpdateSessionTmuxName(conn *sql.DB, id, tmuxSession string) error {
 	n, _ := res.RowsAffected()
 	if n == 0 {
 		return fmt.Errorf("update tmux name %q: %w", id, sql.ErrNoRows)
+	}
+	return nil
+}
+
+func UpdateSessionNotes(conn *sql.DB, id, notes string) error {
+	res, err := conn.Exec(`UPDATE sessions SET notes = ? WHERE id = ?`, notes, id)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("update notes %q: %w", id, sql.ErrNoRows)
 	}
 	return nil
 }
@@ -134,7 +147,7 @@ func scanSessions(rows *sql.Rows) ([]Session, error) {
 	sessions := []Session{}
 	for rows.Next() {
 		var s Session
-		if err := rows.Scan(&s.ID, &s.Title, &s.GroupPath, &s.TmuxSession, &s.ProjectPath, &s.Tool, &s.Status, &s.CreatedAt, &s.LastActive); err != nil {
+		if err := rows.Scan(&s.ID, &s.Title, &s.GroupPath, &s.TmuxSession, &s.ProjectPath, &s.Tool, &s.Status, &s.CreatedAt, &s.LastActive, &s.Notes); err != nil {
 			return nil, err
 		}
 		sessions = append(sessions, s)

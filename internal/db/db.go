@@ -56,5 +56,18 @@ func migrate(conn *sql.DB) error {
 		INSERT OR IGNORE INTO metadata (key, value) VALUES ('schema_version', '1');
 		INSERT OR IGNORE INTO groups (path, name) VALUES ('my-sessions', 'my-sessions');
 	`)
-	return err
+	if err != nil {
+		return err
+	}
+	var version string
+	conn.QueryRow(`SELECT value FROM metadata WHERE key = 'schema_version'`).Scan(&version)
+	if version == "1" {
+		if _, err := conn.Exec(`ALTER TABLE sessions ADD COLUMN notes TEXT NOT NULL DEFAULT ''`); err != nil {
+			return err
+		}
+		if _, err := conn.Exec(`UPDATE metadata SET value = '2' WHERE key = 'schema_version'`); err != nil {
+			return err
+		}
+	}
+	return nil
 }

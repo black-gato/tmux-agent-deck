@@ -129,3 +129,39 @@ func TestUpdateSessionTmuxName(t *testing.T) {
 		t.Errorf("tmux_session: got %q want tmux-session-abc", s.TmuxSession)
 	}
 }
+
+func TestUpdateSessionNotes(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	now := time.Now().Unix()
+	dbpkg.CreateSession(conn, dbpkg.Session{
+		ID: "s1", Title: "a", GroupPath: "my-sessions",
+		ProjectPath: "/p", Tool: "claude", Status: "stopped", CreatedAt: now,
+	})
+
+	if err := dbpkg.UpdateSessionNotes(conn, "s1", "check divergences first"); err != nil {
+		t.Fatal(err)
+	}
+	s, err := dbpkg.GetSession(conn, "s1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Notes != "check divergences first" {
+		t.Errorf("notes: got %q want %q", s.Notes, "check divergences first")
+	}
+}
+
+func TestSessionNotesDefaultsToEmpty(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	now := time.Now().Unix()
+	dbpkg.CreateSession(conn, dbpkg.Session{
+		ID: "s1", Title: "a", GroupPath: "my-sessions",
+		ProjectPath: "/p", Tool: "claude", Status: "stopped", CreatedAt: now,
+	})
+	s, err := dbpkg.GetSession(conn, "s1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Notes != "" {
+		t.Errorf("notes should default to empty, got %q", s.Notes)
+	}
+}
