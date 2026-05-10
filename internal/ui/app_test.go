@@ -391,6 +391,43 @@ func TestDetailPanelShowsPaneList(t *testing.T) {
 	}
 }
 
+func TestViewRendersSplitLayout(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	m := ui.NewModel(conn, nil, nil)
+	m.Reload()
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+
+	view := m.View()
+	if !strings.Contains(view, "│") {
+		t.Errorf("split layout view should contain │ divider, got:\n%s", view)
+	}
+	if !strings.Contains(view, "SESSIONS") {
+		t.Errorf("split layout view should contain SESSIONS header, got:\n%s", view)
+	}
+}
+
+func TestViewFullScreenHidesLeftColumn(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	fake := testutil.NewFakeTmuxClient()
+	fake.Sessions["ad-s1"] = "output\n> "
+	db.CreateSession(conn, db.Session{
+		ID: "s1", Title: "my-feature", GroupPath: "my-sessions",
+		TmuxSession: "ad-s1", ProjectPath: "/p", Tool: "claude",
+		Status: "running", CreatedAt: 1000,
+	})
+	m := ui.NewModel(conn, fake, nil)
+	m.Reload()
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'v'}})
+	m.Reload()
+
+	view := m.View()
+	if strings.Contains(view, "SESSIONS") {
+		t.Errorf("full-screen view should not show SESSIONS column, got:\n%s", view)
+	}
+}
+
 func TestEnterOnRunningSessionAttachesWithoutRestart(t *testing.T) {
 	conn := testutil.OpenTestDB(t)
 	fake := testutil.NewFakeTmuxClient()

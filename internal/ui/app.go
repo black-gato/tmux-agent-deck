@@ -181,10 +181,74 @@ func (m *Model) View() string {
 	if m.err != nil {
 		return "error: " + m.err.Error()
 	}
-	if m.mode != "" {
-		return m.renderDialog()
+
+	leftW := int(float64(m.width) * 0.35)
+	if leftW < 10 {
+		leftW = 10
 	}
-	return RenderList(m.items, m.cursor, m.width, m.height)
+	rightW := m.width - leftW - 1
+	if rightW < 10 {
+		rightW = 10
+	}
+	contentH := m.height - 3
+	if contentH < 1 {
+		contentH = 1
+	}
+
+	header := m.renderAppHeader()
+	footer := renderFooter(m.width)
+
+	if m.viewFull {
+		sep := strings.Repeat("─", m.width)
+		detail := m.RenderDetailPanel(m.width, contentH)
+		return header + "\n" + sep + "\n" + detail + "\n" + footer
+	}
+
+	leftContent := RenderList(m.items, m.cursor, leftW, contentH)
+	var rightContent string
+	if m.mode != "" && m.mode != "edit-notes" {
+		rightContent = m.renderDialog()
+	} else {
+		rightContent = m.RenderDetailPanel(rightW, contentH)
+	}
+
+	leftLines := strings.Split(leftContent, "\n")
+	rightLines := strings.Split(rightContent, "\n")
+
+	sep := strings.Repeat("─", leftW) + "┬" + strings.Repeat("─", rightW)
+
+	var bodyLines []string
+	for i := 0; i < contentH; i++ {
+		var left, right string
+		if i < len(leftLines) {
+			left = leftLines[i]
+		}
+		if i < len(rightLines) {
+			right = rightLines[i]
+		}
+		bodyLines = append(bodyLines, padRight(left, leftW)+"│"+right)
+	}
+
+	return header + "\n" + sep + "\n" + strings.Join(bodyLines, "\n") + "\n" + footer
+}
+
+func (m *Model) renderAppHeader() string {
+	var running, waiting, idle int
+	for _, s := range m.sessions {
+		switch s.Status {
+		case "running":
+			running++
+		case "waiting":
+			waiting++
+		case "idle":
+			idle++
+		}
+	}
+	return fmt.Sprintf(" Agent Deck  ● %d running  ○ %d waiting  ◐ %d idle", running, waiting, idle)
+}
+
+func renderFooter(width int) string {
+	return " Enter Attach  v Expand output  e Notes  n New  g Group  d Delete  q Quit"
 }
 
 func tick() tea.Cmd {
