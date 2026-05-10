@@ -17,10 +17,6 @@ func Open(path string) (*sql.DB, error) {
 		conn.Close()
 		return nil, fmt.Errorf("ping sqlite: %w", err)
 	}
-	if _, err := conn.Exec(`PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;`); err != nil {
-		conn.Close()
-		return nil, fmt.Errorf("configure sqlite: %w", err)
-	}
 	if err := migrate(conn); err != nil {
 		conn.Close()
 		return nil, fmt.Errorf("migrate: %w", err)
@@ -29,6 +25,12 @@ func Open(path string) (*sql.DB, error) {
 }
 
 func migrate(conn *sql.DB) error {
+	if _, err := conn.Exec(`
+		PRAGMA journal_mode=WAL;
+		PRAGMA busy_timeout=5000;
+	`); err != nil {
+		return fmt.Errorf("pragmas: %w", err)
+	}
 	_, err := conn.Exec(`
 		CREATE TABLE IF NOT EXISTS metadata (
 			key   TEXT PRIMARY KEY,
