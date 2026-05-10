@@ -26,21 +26,28 @@ tmux-agent-deck/
 ├── internal/
 │   ├── db/
 │   │   ├── db.go        # Open(), migrate()
+│   │   ├── db_test.go
 │   │   ├── groups.go    # Group type + CRUD functions
-│   │   └── sessions.go  # Session type + CRUD functions
+│   │   ├── groups_test.go
+│   │   ├── sessions.go  # Session type + CRUD functions
+│   │   └── sessions_test.go
 │   ├── tmux/
 │   │   ├── client.go    # NewClient, NewSession, Attach, Kill, Capture, Exists
-│   │   └── status.go    # DetectStatus() pure function
+│   │   ├── status.go    # DetectStatus() pure function
+│   │   └── status_test.go
 │   ├── state/
-│   │   └── poller.go    # Poller: Start/Stop/PollOnce, TmuxReader interface
+│   │   ├── poller.go    # Poller: Start/Stop/PollOnce, TmuxReader interface
+│   │   └── poller_test.go
 │   ├── ui/
 │   │   ├── app.go       # bubbletea Model, Init/Update/View, Reload()
+│   │   ├── app_test.go
 │   │   ├── list.go      # ListItem type, BuildTree(), RenderList()
+│   │   ├── list_test.go
 │   │   ├── dialog.go    # dialogState, updateDialog(), commitDialog()
 │   │   └── keys.go      # actionForKey() mapping
 │   └── testutil/
-│       └── db.go        # OpenTestDB(t) helper
-└── go.mod
+│       ├── db.go        # OpenTestDB(t) helper
+│       └── tmux.go      # fake TmuxReader for poller tests
 ```
 
 **Data flow:** `poller` reads tmux pane output every ~1s → writes status to DB → `app` reads DB on tick → bubbletea re-renders list.
