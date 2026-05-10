@@ -32,6 +32,7 @@ type Model struct {
 	viewFull      bool
 	panes         []tmux.Pane
 	output        string
+	activePaneIdx int
 }
 
 func NewModel(conn *sql.DB, tc tmux.ClientIface, poller *state.Poller) *Model {
