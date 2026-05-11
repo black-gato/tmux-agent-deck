@@ -4,19 +4,19 @@ Use this checklist for real end-to-end behavior that unit/component tests do not
 
 ## Setup
 
-- [ ] Build the local binary:
+- [x] Build the local binary:
 
 ```bash
 go build -o ./tmux-agent-deck .
 ```
 
-- [ ] Use a disposable test database:
+- [x] Use a disposable test database:
 
 ```bash
 export AGENT_DECK_DB="$(mktemp -t agent-deck-qa.XXXXXX.db)"
 ```
 
-- [ ] Create nested groups and sessions:
+- [x] Create nested groups and sessions:
 
 ```bash
 ./tmux-agent-deck group create qa --tool bash
@@ -31,7 +31,7 @@ export AGENT_DECK_DB="$(mktemp -t agent-deck-qa.XXXXXX.db)"
 ./tmux-agent-deck session start qa-back
 ```
 
-- [ ] Confirm tmux sessions exist:
+- [x] Confirm tmux sessions exist:
 
 ```bash
 tmux list-sessions | grep '^ad-'
