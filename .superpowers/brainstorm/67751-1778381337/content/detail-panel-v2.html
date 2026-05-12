@@ -1,0 +1,59 @@
+<h2>Detail Panel — Updated</h2>
+<p class="subtitle">Dynamic output + per-pane shell programs</p>
+
+<style>
+  .tui-wrap { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 11px; line-height: 1.4; }
+  .tui-screen {
+    background: #1a1a2e;
+    color: #c0caf5;
+    border-radius: 6px;
+    padding: 10px;
+    border: 1px solid #3d4166;
+    white-space: pre;
+    overflow: hidden;
+  }
+  .tui-header { color: #7aa2f7; font-weight: bold; }
+  .tui-selected { background: #2d3f76; color: #c0e6ff; display: inline-block; }
+  .tui-running { color: #9ece6a; }
+  .tui-waiting { color: #e0af68; }
+  .tui-idle { color: #565f89; }
+  .tui-divider { color: #3d4166; }
+  .tui-label { color: #565f89; }
+  .tui-accent { color: #7aa2f7; }
+  .tui-section { color: #565f89; font-size: 9px; letter-spacing: 1px; }
+  .tui-note { color: #bb9af7; font-style: italic; }
+  .tui-shell { color: #9ece6a; }
+  .tui-pane-active { color: #9ece6a; }
+  .tui-pane-inactive { color: #565f89; }
+  .tui-footer { background: #16213e; color: #565f89; padding: 3px 8px; border-radius: 0 0 6px 6px; font-size: 10px; margin: 0 -10px -10px; }
+</style>
+
+<div class="mockup">
+  <div class="mockup-header">Full TUI — panes shown, output fills available height</div>
+  <div class="mockup-body">
+    <div class="tui-wrap">
+      <div class="tui-screen">
+<span class="tui-header"> Agent Deck</span>  <span class="tui-running">● 2 running</span>  <span class="tui-waiting">○ 3 waiting</span>  <span class="tui-idle">◐ 1 idle</span>
+<span class="tui-divider">─────────────────┬──────────────────────────────────────</span>
+<span class="tui-label"> SESSIONS        </span><span class="tui-divider">│</span> <span class="tui-section"> SESSION ───────────────────────────────</span>
+<span class="tui-divider"> ──────────────── </span><span class="tui-divider">│</span>  <span class="tui-accent">update-design-spec-divergences</span>  <span class="tui-waiting">○ waiting</span>
+<span class="tui-label"> ▼ My Sessions   </span><span class="tui-divider">│</span>  <span class="tui-label">group:</span> My Sessions
+<span class="tui-waiting">   ○ mama        </span><span class="tui-divider">│</span>  <span class="tui-pane-active">[0] claude</span>  <span class="tui-pane-inactive">[1] bash</span>  <span class="tui-pane-inactive">[2] nvim</span>
+<span class="tui-running">   ● api-work    </span><span class="tui-divider">│</span>
+<span class="tui-selected">   ○ update-desi </span><span class="tui-divider">│</span> <span class="tui-section"> OUTPUT ────────────────────────────────</span>
+<span class="tui-idle">   ◐ notes       </span><span class="tui-divider">│</span>  Analyzing changes to client.go...
+<span class="tui-label">                 </span><span class="tui-divider">│</span>  Running tests...
+<span class="tui-label"> ▼ Research      </span><span class="tui-divider">│</span>  ✓ 12 tests pass
+<span class="tui-idle">   ◐ side-proj   </span><span class="tui-divider">│</span>  Updating spec doc...
+<span class="tui-label">                 </span><span class="tui-divider">│</span>  Checking for divergences...
+<span class="tui-label">                 </span><span class="tui-divider">│</span>  Done. 3 items flagged.
+<span class="tui-label">                 </span><span class="tui-divider">│</span>  <span class="tui-waiting">&gt; </span>
+<span class="tui-label">                 </span><span class="tui-divider">│</span>
+<span class="tui-label">                 </span><span class="tui-divider">│</span> <span class="tui-section"> NOTES ─────────────────────────────────</span>
+<span class="tui-label">                 </span><span class="tui-divider">│</span>  <span class="tui-note">Implement sub-agent approach for spec</span>
+<span class="tui-label">                 </span><span class="tui-divider">│</span>  <span class="tui-note">review. Check divergences doc first.</span>
+<span class="tui-label">                 </span><span class="tui-divider">│</span>  <span class="tui-label">e edit</span>
+<span class="tui-footer"> Enter Attach  v Expand output  e Notes  x Send  n New  f Fork  q Quit</span></div>
+    </div>
+  </div>
+</div>

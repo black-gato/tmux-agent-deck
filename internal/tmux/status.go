@@ -25,7 +25,7 @@ func lastLine(s string) string {
 }
 
 func DetectStatus(output string, lastChange time.Time, tool string) Status {
-	trimmed := strings.TrimRight(output, " \t")
+	trimmed := strings.TrimRight(output, " \t\r\n")
 
 	switch tool {
 	case "aider":

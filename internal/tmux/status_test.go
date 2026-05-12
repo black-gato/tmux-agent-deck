@@ -89,6 +89,7 @@ func TestDetectStatusBashWaiting(t *testing.T) {
 		"user@host:~$ ",
 		"root@host:~# ",
 		"Some output\n> ",
+		"command output\nuser@host:~$ \n\n\n",
 	} {
 		status := tmux.DetectStatus(output, time.Now(), "")
 		if status != tmux.StatusWaiting {

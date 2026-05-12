@@ -1,0 +1,118 @@
+<h2>TUI Layout Direction</h2>
+<p class="subtitle">How should the session list and detail panel be arranged?</p>
+
+<style>
+  .tui-wrap { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 11px; line-height: 1.4; }
+  .tui-screen {
+    background: #1a1a2e;
+    color: #c0caf5;
+    border-radius: 6px;
+    padding: 10px;
+    border: 1px solid #3d4166;
+    white-space: pre;
+    overflow: hidden;
+    max-width: 100%;
+  }
+  .tui-header { color: #7aa2f7; font-weight: bold; }
+  .tui-selected { background: #2d3f76; color: #c0e6ff; display: inline-block; }
+  .tui-running { color: #9ece6a; }
+  .tui-waiting { color: #e0af68; }
+  .tui-idle { color: #565f89; }
+  .tui-divider { color: #3d4166; }
+  .tui-label { color: #565f89; }
+  .tui-accent { color: #7aa2f7; }
+  .tui-bar-fill { color: #9ece6a; }
+  .tui-bar-empty { color: #3d4166; }
+  .tui-footer { background: #16213e; color: #565f89; padding: 3px 8px; border-radius: 0 0 6px 6px; font-size: 10px; margin: 0 -10px -10px; }
+  .tui-section-header { color: #565f89; text-transform: uppercase; font-size: 10px; letter-spacing: 1px; }
+</style>
+
+<div class="cards">
+
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="tui-wrap">
+        <div class="tui-screen">
+<span class="tui-header"> Agent Deck</span>  <span class="tui-running">● 2 running</span>  <span class="tui-waiting">○ 3 waiting</span>
+<span class="tui-divider">─────────────────┬──────────────────────────────────────</span>
+<span class="tui-label"> SESSIONS        </span><span class="tui-divider">│</span> <span class="tui-accent">update-design-spec      </span> <span class="tui-waiting">○ waiting</span>
+<span class="tui-divider"> ───────────────  </span><span class="tui-divider">│</span>  <span class="tui-label">my-sessions  30m ago</span>
+<span class="tui-label"> ▼ My Sessions   </span><span class="tui-divider">│</span>
+<span class="tui-waiting">   ○ mama        </span><span class="tui-divider">│</span> <span class="tui-section-header"> ─── Output ──────────────────────</span>
+<span class="tui-running">   ● api-work    </span><span class="tui-divider">│</span>  Analyzing changes to client.go
+<span class="tui-selected">   ○ update-desi </span><span class="tui-divider">│</span>  Running tests...
+<span class="tui-idle">   ◐ notes       </span><span class="tui-divider">│</span>  ✓ All tests pass
+<span class="tui-label">                 </span><span class="tui-divider">│</span>  <span class="tui-waiting">&gt; </span>
+<span class="tui-label"> ▼ Research      </span><span class="tui-divider">│</span>
+<span class="tui-idle">   ◐ side-proj   </span><span class="tui-divider">│</span> <span class="tui-section-header"> ─── Analytics ───────────────────</span>
+<span class="tui-label">                 </span><span class="tui-divider">│</span>  Context <span class="tui-bar-fill">████████</span><span class="tui-bar-empty">────────────</span> <span class="tui-running">4.8%</span>
+<span class="tui-label">                 </span><span class="tui-divider">│</span>
+<span class="tui-label">                 </span><span class="tui-divider">│</span> <span class="tui-section-header"> ─── Notes ───────────────────────</span>
+<span class="tui-label">                 </span><span class="tui-divider">│</span>  <span class="tui-label">No notes  e to edit</span>
+<span class="tui-footer"> Enter Attach  n New  f Fork  x Send  e Notes  q Quit</span></div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A — Always-split</h3>
+      <p>Permanent 35/65 split. Detail panel always visible. Navigation stays in list, right panel updates as you move.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="tui-wrap">
+        <div class="tui-screen">
+<span class="tui-header"> Agent Deck</span>  <span class="tui-running">● 2 running</span>  <span class="tui-waiting">○ 3 waiting</span>
+<span class="tui-divider">──────────────────────────────────────────────────────</span>
+<span class="tui-label">  SESSIONS</span>
+<span class="tui-divider">  ─────────────────────────────────────────────────────</span>
+<span class="tui-waiting">  ○ mama              claude   My Sessions   30m ago</span>
+<span class="tui-running">  ● api-work          claude   My Sessions    2m ago</span>
+<span class="tui-selected">  ○ update-design     claude   My Sessions    5m ago</span>
+<span class="tui-idle">  ◐ notes             claude   My Sessions   12m ago</span>
+<span class="tui-idle">  ◐ side-proj         claude   Research       1h ago</span>
+<span class="tui-label">                                                      </span>
+<span class="tui-label">                                                      </span>
+<span class="tui-label">                                                      </span>
+<span class="tui-label">                                                      </span>
+<span class="tui-label">                                                      </span>
+<span class="tui-label">                                                      </span>
+<span class="tui-label">                                                      </span>
+<span class="tui-footer"> Enter Attach  Tab Detail  n New  f Fork  x Send  q Quit</span></div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B — List-first, Tab to expand</h3>
+      <p>Default is full-width list with more sessions visible. Press Tab to slide open a detail panel for the selected session. Toggle back to dismiss.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="tui-wrap">
+        <div class="tui-screen">
+<span class="tui-header"> Agent Deck</span>  <span class="tui-running">● 2 running</span>  <span class="tui-waiting">○ 3 waiting</span>
+<span class="tui-divider">─────────────────┬──────────────────────────────────────</span>
+<span class="tui-label"> SESSIONS        </span><span class="tui-divider">│</span> <span class="tui-accent">update-design-spec      </span> <span class="tui-waiting">○ waiting</span>
+<span class="tui-divider"> ───────────────  </span><span class="tui-divider">│</span>  <span class="tui-label">my-sessions  30m ago</span>
+<span class="tui-waiting">   ○ mama        </span><span class="tui-divider">│</span>
+<span class="tui-running">   ● api-work    </span><span class="tui-divider">│</span> <span class="tui-section-header"> ─── Output ──────────────────────</span>
+<span class="tui-selected">   ○ update-desi </span><span class="tui-divider">│</span>  Analyzing changes to client.go
+<span class="tui-idle">   ◐ notes       </span><span class="tui-divider">│</span>  Running tests...
+<span class="tui-idle">   ◐ side-proj   </span><span class="tui-divider">│</span>  ✓ All tests pass
+<span class="tui-label">                 </span><span class="tui-divider">│</span>  <span class="tui-waiting">&gt; </span>
+<span class="tui-label">                 </span><span class="tui-divider">│</span>
+<span class="tui-label">   [Tab: expand  </span><span class="tui-divider">│</span>   <span class="tui-label">v: expand output to full screen</span>
+<span class="tui-label">    output view] </span><span class="tui-divider">│</span>
+<span class="tui-label">                 </span><span class="tui-divider">│</span> <span class="tui-section-header"> ─── Notes ───────────────────────</span>
+<span class="tui-label">                 </span><span class="tui-divider">│</span>  <span class="tui-label">No notes  e to edit</span>
+<span class="tui-footer"> Enter Attach  v Expand  n New  f Fork  x Send  e Notes  q Quit</span></div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C — Split + expandable output</h3>
+      <p>Always-split like A, but pressing <code>v</code> expands the right panel to full-screen for reading output. Another keypress collapses back to split.</p>
+    </div>
+  </div>
+
+</div>

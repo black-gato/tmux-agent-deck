@@ -8,8 +8,8 @@ func TestPaneTarget(t *testing.T) {
 		pane    int
 		want    string
 	}{
-		{"mysession", 0, "mysession:0"},
-		{"ad-abc12345", 2, "ad-abc12345:2"},
+		{"mysession", 0, "mysession:0.0"},
+		{"ad-abc12345", 2, "ad-abc12345:0.2"},
 	}
 	for _, tc := range tests {
 		got := paneTarget(tc.session, tc.pane)

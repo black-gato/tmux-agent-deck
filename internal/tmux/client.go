@@ -104,7 +104,7 @@ func (c *Client) ListPanes(session string) ([]Pane, error) {
 }
 
 func paneTarget(session string, paneIndex int) string {
-	return fmt.Sprintf("%s:%d", session, paneIndex)
+	return fmt.Sprintf("%s:0.%d", session, paneIndex)
 }
 
 func (c *Client) SendKeys(session string, paneIndex int, keys string) error {
