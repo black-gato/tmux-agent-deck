@@ -89,6 +89,67 @@ func TestPollerSkipsStoppedSessions(t *testing.T) {
 	}
 }
 
+func TestPollerTracksWaitingSinceForExistingWaitingSession(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	now := time.Unix(1_700_000_000, 0)
+	db.CreateSession(conn, db.Session{
+		ID:          "s4",
+		Title:       "waiting-one",
+		GroupPath:   "my-sessions",
+		TmuxSession: "tmux-s4",
+		ProjectPath: "/p",
+		Tool:        "claude",
+		Status:      "waiting",
+		CreatedAt:   now.Unix(),
+	})
+
+	stub := &stubTmux{output: "Some output\n> ", exists: true}
+	p := state.NewWithClock(conn, stub, func() time.Time { return now })
+	p.PollOnce()
+
+	waitingSince := p.WaitingSinceSnapshot()
+	got, ok := waitingSince["s4"]
+	if !ok {
+		t.Fatal("expected waiting timestamp for s4")
+	}
+	if !got.Equal(now) {
+		t.Fatalf("waiting timestamp: got %v want %v", got, now)
+	}
+}
+
+func TestPollerClearsWaitingSinceWhenSessionLeavesWaiting(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	current := time.Unix(1_700_000_000, 0)
+	db.CreateSession(conn, db.Session{
+		ID:          "s5",
+		Title:       "waiting-to-running",
+		GroupPath:   "my-sessions",
+		TmuxSession: "tmux-s5",
+		ProjectPath: "/p",
+		Tool:        "claude",
+		Status:      "waiting",
+		CreatedAt:   current.Unix(),
+	})
+
+	stub := &stubTmux{output: "Some output\n> ", exists: true}
+	p := state.NewWithClock(conn, stub, func() time.Time { return current })
+	p.PollOnce()
+
+	current = current.Add(35 * time.Second)
+	stub.output = "Thinking hard..."
+	p.PollOnce()
+
+	waitingSince := p.WaitingSinceSnapshot()
+	if _, ok := waitingSince["s5"]; ok {
+		t.Fatal("expected waiting timestamp to clear after leaving waiting")
+	}
+
+	s, _ := db.GetSession(conn, "s5")
+	if s.Status != "running" {
+		t.Fatalf("status: got %q want running", s.Status)
+	}
+}
+
 type countingStub struct{ callCount *int }
 
 func (s *countingStub) CapturePaneOutput(name string) (string, error) {

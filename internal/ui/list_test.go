@@ -110,6 +110,18 @@ func TestRenderListTruncatesLongTitleToWidth(t *testing.T) {
 	}
 }
 
+func TestRenderListShowsWaitingElapsedLabel(t *testing.T) {
+	groups := []db.Group{{Path: "g", Name: "g", Expanded: true}}
+	sessions := []db.Session{{ID: "s1", Title: "my-app", GroupPath: "g", Status: "waiting"}}
+	items := ui.BuildTree(groups, sessions)
+	items[1].WaitLabel = "2m"
+
+	output := ui.RenderList(items, 1, 80, 24)
+	if !strings.Contains(output, "○ 2m my-app") {
+		t.Errorf("render missing wait label, got: %q", output)
+	}
+}
+
 func stripANSI(s string) string {
 	var result []rune
 	runes := []rune(s)

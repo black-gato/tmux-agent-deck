@@ -6,33 +6,35 @@ import (
 	"strings"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 	"github.com/black-gato/tmux-agent-deck/internal/db"
 	"github.com/black-gato/tmux-agent-deck/internal/state"
 	"github.com/black-gato/tmux-agent-deck/internal/tmux"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 type tickMsg struct{}
 
 type Model struct {
-	conn          *sql.DB
-	tmuxC         tmux.ClientIface
-	poller        *state.Poller
-	groups        []db.Group
-	sessions      []db.Session
-	items         []ListItem
-	cursor        int
-	width         int
-	height        int
-	mode          string // "", "new-session", "new-group", "rename", "move"
-	dialog        dialogState
-	err           error
-	PendingAttach string // tmux session name to attach after TUI exits
-	viewFull      bool
-	panes         []tmux.Pane
-	output        string
-	activePaneIdx int
+	conn           *sql.DB
+	tmuxC          tmux.ClientIface
+	poller         *state.Poller
+	groups         []db.Group
+	sessions       []db.Session
+	items          []ListItem
+	cursor         int
+	width          int
+	height         int
+	mode           string // "", "new-session", "new-group", "rename", "move"
+	dialog         dialogState
+	err            error
+	PendingAttach  string // tmux session name to attach after TUI exits
+	viewFull       bool
+	panes          []tmux.Pane
+	output         string
+	activePaneIdx  int
+	waitingSince   map[string]time.Time
+	overdueWaiting int
 }
 
 func NewModel(conn *sql.DB, tc tmux.ClientIface, poller *state.Poller) *Model {
@@ -40,6 +42,10 @@ func NewModel(conn *sql.DB, tc tmux.ClientIface, poller *state.Poller) *Model {
 }
 
 func (m *Model) Reload() error {
+	now := time.Now()
+	if m.poller != nil {
+		now = m.poller.Now()
+	}
 	groups, err := db.ListGroups(m.conn)
 	if err != nil {
 		return err
@@ -51,6 +57,24 @@ func (m *Model) Reload() error {
 	m.groups = groups
 	m.sessions = sessions
 	m.items = BuildTree(groups, sessions)
+	m.waitingSince = nil
+	m.overdueWaiting = 0
+	if m.poller != nil {
+		m.waitingSince = m.poller.WaitingSinceSnapshot()
+		for i := range m.items {
+			if m.items[i].Kind != "session" || m.items[i].Session.Status != tmux.StatusWaiting {
+				continue
+			}
+			since, ok := m.waitingSince[m.items[i].Session.ID]
+			if !ok {
+				continue
+			}
+			m.items[i].WaitLabel = formatElapsed(now.Sub(since))
+			if now.Sub(since) > 30*time.Second {
+				m.overdueWaiting++
+			}
+		}
+	}
 	if m.cursor >= len(m.items) && len(m.items) > 0 {
 		m.cursor = len(m.items) - 1
 	}
@@ -71,13 +95,14 @@ func (m *Model) Reload() error {
 	return nil
 }
 
-func (m *Model) Items() []ListItem    { return m.items }
-func (m *Model) Cursor() int          { return m.cursor }
-func (m *Model) Mode() string         { return m.mode }
-func (m *Model) Panes() []tmux.Pane   { return m.panes }
-func (m *Model) Output() string       { return m.output }
-func (m *Model) ViewFull() bool       { return m.viewFull }
-func (m *Model) ActivePaneIdx() int   { return m.activePaneIdx }
+func (m *Model) Items() []ListItem   { return m.items }
+func (m *Model) Cursor() int         { return m.cursor }
+func (m *Model) Mode() string        { return m.mode }
+func (m *Model) Panes() []tmux.Pane  { return m.panes }
+func (m *Model) Output() string      { return m.output }
+func (m *Model) ViewFull() bool      { return m.viewFull }
+func (m *Model) ActivePaneIdx() int  { return m.activePaneIdx }
+func (m *Model) OverdueWaiting() int { return m.overdueWaiting }
 
 func (m *Model) Init() tea.Cmd {
 	if err := m.Reload(); err != nil {
@@ -256,7 +281,7 @@ func (m *Model) View() string {
 }
 
 func (m *Model) renderAppHeader() string {
-	var running, waiting, idle int
+	var running, waiting, idle, errs int
 	for _, s := range m.sessions {
 		switch s.Status {
 		case "running":
@@ -265,9 +290,15 @@ func (m *Model) renderAppHeader() string {
 			waiting++
 		case "idle":
 			idle++
+		case "error":
+			errs++
 		}
 	}
-	return fmt.Sprintf(" Agent Deck  ● %d running  ○ %d waiting  ◐ %d idle", running, waiting, idle)
+	header := fmt.Sprintf(" Agent Deck  ● %d running  ○ %d waiting  ◐ %d idle  ✕ %d error", running, waiting, idle, errs)
+	if m.overdueWaiting > 0 {
+		header += fmt.Sprintf("  !%d", m.overdueWaiting)
+	}
+	return header
 }
 
 func renderFooter() string {
@@ -295,7 +326,17 @@ func (m *Model) RenderDetailPanel(w, h int) string {
 	if sym == "" {
 		sym = "—"
 	}
-	lines = append(lines, fmt.Sprintf(" %s  %s", s.Title, sym))
+	statusText := sym
+	if s.Status == tmux.StatusWaiting {
+		if since, ok := m.waitingSince[s.ID]; ok {
+			now := time.Now()
+			if m.poller != nil {
+				now = m.poller.Now()
+			}
+			statusText = fmt.Sprintf("%s %s", sym, formatElapsed(now.Sub(since)))
+		}
+	}
+	lines = append(lines, fmt.Sprintf(" %s  %s", s.Title, statusText))
 	lines = append(lines, fmt.Sprintf(" group: %s", s.GroupPath))
 	lines = append(lines, " "+renderPaneList(m.panes, m.activePaneIdx))
 
@@ -379,6 +420,19 @@ func tailLines(output string, n int) []string {
 		return all
 	}
 	return all[len(all)-n:]
+}
+
+func formatElapsed(d time.Duration) string {
+	if d < 0 {
+		d = 0
+	}
+	if d < time.Minute {
+		return fmt.Sprintf("%ds", int(d/time.Second))
+	}
+	if d < time.Hour {
+		return fmt.Sprintf("%dm", int(d/time.Minute))
+	}
+	return fmt.Sprintf("%dh", int(d/time.Hour))
 }
 
 func padRight(s string, width int) string {

@@ -3,12 +3,14 @@ package ui_test
 import (
 	"strings"
 	"testing"
+	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/black-gato/tmux-agent-deck/internal/db"
+	"github.com/black-gato/tmux-agent-deck/internal/state"
+	"github.com/black-gato/tmux-agent-deck/internal/testutil"
 	"github.com/black-gato/tmux-agent-deck/internal/tmux"
 	"github.com/black-gato/tmux-agent-deck/internal/ui"
-	"github.com/black-gato/tmux-agent-deck/internal/testutil"
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 func TestModelInitializesWithGroups(t *testing.T) {
@@ -517,6 +519,68 @@ func TestSendPaneCtrlCharSent(t *testing.T) {
 	}
 	if fake.SentKeys[0].Keys != "C-c" {
 		t.Errorf("keys: got %q want C-c", fake.SentKeys[0].Keys)
+	}
+}
+
+func TestReloadAnnotatesWaitingSessionsWithElapsedTime(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	fake := testutil.NewFakeTmuxClient()
+	fake.Sessions["ad-s1"] = "> "
+
+	base := time.Unix(1_700_000_000, 0)
+	current := base
+	db.CreateSession(conn, db.Session{
+		ID: "s1", Title: "my-app", GroupPath: "my-sessions",
+		TmuxSession: "ad-s1", ProjectPath: "/p", Tool: "claude",
+		Status: "waiting", CreatedAt: base.Unix(),
+	})
+
+	poller := state.NewWithClock(conn, fake, func() time.Time { return current })
+	poller.PollOnce()
+	current = current.Add(65 * time.Second)
+
+	m := ui.NewModel(conn, fake, poller)
+	m.Reload()
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	m.Reload()
+
+	if got := m.Items()[1].WaitLabel; got != "1m" {
+		t.Fatalf("wait label: got %q want 1m", got)
+	}
+}
+
+func TestViewShowsErrorCountAndOverdueWaitingBadge(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	fake := testutil.NewFakeTmuxClient()
+	fake.Sessions["ad-wait"] = "> "
+
+	base := time.Unix(1_700_000_000, 0)
+	current := base
+	db.CreateSession(conn, db.Session{
+		ID: "wait-1", Title: "waiting-app", GroupPath: "my-sessions",
+		TmuxSession: "ad-wait", ProjectPath: "/p", Tool: "claude",
+		Status: "waiting", CreatedAt: base.Unix(),
+	})
+	db.CreateSession(conn, db.Session{
+		ID: "err-1", Title: "broken-app", GroupPath: "my-sessions",
+		ProjectPath: "/p", Tool: "claude",
+		Status: "error", CreatedAt: base.Unix(),
+	})
+
+	poller := state.NewWithClock(conn, fake, func() time.Time { return current })
+	poller.PollOnce()
+	current = current.Add(31 * time.Second)
+
+	m := ui.NewModel(conn, fake, poller)
+	m.Reload()
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+
+	view := m.View()
+	if !strings.Contains(view, "✕ 1 error") {
+		t.Fatalf("view missing error count, got:\n%s", view)
+	}
+	if !strings.Contains(view, "!1") {
+		t.Fatalf("view missing overdue waiting badge, got:\n%s", view)
 	}
 }
 

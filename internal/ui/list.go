@@ -9,10 +9,11 @@ import (
 )
 
 type ListItem struct {
-	Kind    string // "group" or "session"
-	Group   *db.Group
-	Session *db.Session
-	Depth   int
+	Kind      string // "group" or "session"
+	Group     *db.Group
+	Session   *db.Session
+	Depth     int
+	WaitLabel string
 }
 
 var statusSymbol = map[string]string{
@@ -121,16 +122,22 @@ func RenderList(items []ListItem, cursor, width, height int) string {
 				sym = "—"
 			}
 			prefixLen := len([]rune(indent)) + 1 + 2 // sym(1) + spaces(2)
+			if item.WaitLabel != "" {
+				prefixLen += len([]rune(item.WaitLabel)) + 1
+			}
 			titleMax := width - prefixLen
 			if titleMax < 1 {
 				titleMax = 1
 			}
 			title := truncate(item.Session.Title, titleMax)
+			raw := fmt.Sprintf("%s%s  %s", indent, sym, title)
+			if item.WaitLabel != "" {
+				raw = fmt.Sprintf("%s%s %s %s", indent, sym, item.WaitLabel, title)
+			}
 			if selected {
-				raw := fmt.Sprintf("%s%s  %s", indent, sym, title)
 				line = selectedStyle.Render(raw)
 			} else {
-				line = fmt.Sprintf("%s%s  %s", indent, sym, title)
+				line = raw
 			}
 		}
 		sb.WriteString(line + "\n")

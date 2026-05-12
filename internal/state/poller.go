@@ -3,6 +3,7 @@ package state
 import (
 	"database/sql"
 	"log"
+	"sync"
 	"time"
 
 	"github.com/black-gato/tmux-agent-deck/internal/db"
@@ -17,18 +18,27 @@ type TmuxReader interface {
 }
 
 type Poller struct {
-	conn       *sql.DB
-	tmux       TmuxReader
-	lastChange map[string]time.Time
-	done       chan struct{}
+	conn         *sql.DB
+	tmux         TmuxReader
+	now          func() time.Time
+	mu           sync.RWMutex
+	lastChange   map[string]time.Time
+	waitingSince map[string]time.Time
+	done         chan struct{}
 }
 
 func New(conn *sql.DB, tc TmuxReader) *Poller {
+	return NewWithClock(conn, tc, time.Now)
+}
+
+func NewWithClock(conn *sql.DB, tc TmuxReader, now func() time.Time) *Poller {
 	return &Poller{
-		conn:       conn,
-		tmux:       tc,
-		lastChange: make(map[string]time.Time),
-		done:       make(chan struct{}),
+		conn:         conn,
+		tmux:         tc,
+		now:          now,
+		lastChange:   make(map[string]time.Time),
+		waitingSince: make(map[string]time.Time),
+		done:         make(chan struct{}),
 	}
 }
 
@@ -51,6 +61,21 @@ func (p *Poller) Stop() {
 	close(p.done)
 }
 
+func (p *Poller) WaitingSinceSnapshot() map[string]time.Time {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	snapshot := make(map[string]time.Time, len(p.waitingSince))
+	for id, ts := range p.waitingSince {
+		snapshot[id] = ts
+	}
+	return snapshot
+}
+
+func (p *Poller) Now() time.Time {
+	return p.now()
+}
+
 func (p *Poller) PollOnce() {
 	sessions, err := db.ListSessions(p.conn)
 	if err != nil {
@@ -59,7 +84,7 @@ func (p *Poller) PollOnce() {
 	}
 	for _, s := range sessions {
 		if s.Status == tmux.StatusStopped || s.TmuxSession == "" {
-			delete(p.lastChange, s.ID)
+			p.clearSessionState(s.ID)
 			continue
 		}
 		exists, err := p.tmux.SessionExists(s.TmuxSession)
@@ -71,7 +96,7 @@ func (p *Poller) PollOnce() {
 			if err := db.UpdateSessionStatus(p.conn, s.ID, tmux.StatusError); err != nil {
 				log.Printf("poller: update status error %q: %v", s.ID, err)
 			}
-			delete(p.lastChange, s.ID)
+			p.clearSessionState(s.ID)
 			continue
 		}
 		out, err := p.tmux.CapturePaneOutput(s.TmuxSession)
@@ -80,18 +105,53 @@ func (p *Poller) PollOnce() {
 			continue
 		}
 
-		lc, ok := p.lastChange[s.ID]
-		if !ok {
-			lc = time.Now()
-			p.lastChange[s.ID] = lc
-		}
+		now := p.now()
+		lc := p.lastObservedChange(s.ID, now)
 
 		newStatus := tmux.DetectStatus(out, lc, s.Tool)
+		p.updateWaitingState(s.ID, s.Status, newStatus, now)
 		if newStatus != s.Status {
-			p.lastChange[s.ID] = time.Now()
+			p.setLastChange(s.ID, now)
 			if err := db.UpdateSessionStatus(p.conn, s.ID, newStatus); err != nil {
 				log.Printf("poller: update status %q: %v", s.ID, err)
 			}
 		}
+	}
+}
+
+func (p *Poller) clearSessionState(id string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	delete(p.lastChange, id)
+	delete(p.waitingSince, id)
+}
+
+func (p *Poller) lastObservedChange(id string, now time.Time) time.Time {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	lc, ok := p.lastChange[id]
+	if !ok {
+		p.lastChange[id] = now
+		return now
+	}
+	return lc
+}
+
+func (p *Poller) setLastChange(id string, now time.Time) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.lastChange[id] = now
+}
+
+func (p *Poller) updateWaitingState(id, previousStatus, newStatus string, now time.Time) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if newStatus != tmux.StatusWaiting {
+		delete(p.waitingSince, id)
+		return
+	}
+	if _, ok := p.waitingSince[id]; !ok || previousStatus != tmux.StatusWaiting {
+		p.waitingSince[id] = now
 	}
 }
