@@ -116,6 +116,7 @@ See `docs/superpowers/specs/2026-05-10-roadmap.md` for the full product roadmap.
 After the split panel TUI, planned milestones in order:
 1. **M1 Interaction Primitives** — Send to pane (`x`), Fork session (`f`), Broadcast to group (`b`)
 2. **M2 Observability** — Context window %, waiting timers, desktop notifications, output search
-3. **M3 Fleet Management** — Multi-select, bulk ops, archive/restore, tags
+3. **M3 Conductors + macOS Alerts** — Group conductor (`c`), escalate-to-conductor (`C`), waiting digest, `--notify-style`, quiet hours
 4. **M4 Session Configuration** — Project path picker, tool selection, group defaults, startup scripts
-5. **M5 Polish** — Session filter, help overlay, onboarding, configurable poll, headless mode
+5. **M5 Fleet Management** — Multi-select, bulk ops, archive/restore, tags
+6. **M6 Polish & Onboarding** — Session filter, help overlay, onboarding, configurable poll, headless mode
