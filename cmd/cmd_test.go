@@ -58,3 +58,17 @@ func TestListAcceptsNotifyFlags(t *testing.T) {
 		t.Fatalf("list with notify flags: %v", err)
 	}
 }
+
+func TestListRejectsInvalidPollFlag(t *testing.T) {
+	dbPath := t.TempDir() + "/test.db"
+	t.Setenv("AGENT_DECK_DB", dbPath)
+
+	var out bytes.Buffer
+	err := cmd.RunWith([]string{"--poll", "not-a-duration", "list"}, &out)
+	if err == nil {
+		t.Fatal("expected invalid poll flag error")
+	}
+	if !bytes.Contains([]byte(err.Error()), []byte("invalid argument")) {
+		t.Fatalf("expected parse error, got %v", err)
+	}
+}

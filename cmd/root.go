@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/black-gato/tmux-agent-deck/internal/db"
 	"github.com/black-gato/tmux-agent-deck/internal/notify"
@@ -20,6 +21,7 @@ var rootDB *sql.DB
 var notifyEnabled bool
 var notifyStyle string
 var notifyQuiet string
+var pollInterval time.Duration
 
 var rootCmd = &cobra.Command{
 	Use:   "tmux-agent-deck",
@@ -72,11 +74,11 @@ func openDB() (*sql.DB, error) {
 func launchTUI(conn *sql.DB) error {
 	tc := tmux.NewClient()
 	for {
-		poller := state.NewWithNotifier(conn, tc, notify.New(notify.Config{
+		poller := state.NewWithNotifierInterval(conn, tc, notify.New(notify.Config{
 			Enabled: notifyEnabled,
 			Style:   notify.Style(notifyStyle),
 			Quiet:   notifyQuiet,
-		}))
+		}), pollInterval)
 		poller.Start()
 
 		m := ui.NewModel(conn, tc, poller)
@@ -103,4 +105,5 @@ func init() {
 	rootCmd.PersistentFlags().BoolVar(&notifyEnabled, "notify", false, "Enable desktop notifications")
 	rootCmd.PersistentFlags().StringVar(&notifyStyle, "notify-style", "waiting", "Notification style: waiting, conductor, digest")
 	rootCmd.PersistentFlags().StringVar(&notifyQuiet, "notify-quiet", "", "Quiet hours / cooldown policy")
+	rootCmd.PersistentFlags().DurationVar(&pollInterval, "poll", time.Second, "Poll interval")
 }

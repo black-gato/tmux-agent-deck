@@ -24,6 +24,7 @@ type Poller struct {
 	tmux         TmuxReader
 	notifier     waitingNotifier
 	now          func() time.Time
+	interval     time.Duration
 	mu           sync.RWMutex
 	lastChange   map[string]time.Time
 	waitingSince map[string]time.Time
@@ -41,15 +42,27 @@ func New(conn *sql.DB, tc TmuxReader) *Poller {
 }
 
 func NewWithNotifier(conn *sql.DB, tc TmuxReader, notifier waitingNotifier) *Poller {
-	return NewWithClock(conn, tc, notifier, time.Now)
+	return NewWithNotifierInterval(conn, tc, notifier, time.Second)
 }
 
 func NewWithClock(conn *sql.DB, tc TmuxReader, notifier waitingNotifier, now func() time.Time) *Poller {
+	return NewWithClockInterval(conn, tc, notifier, now, time.Second)
+}
+
+func NewWithNotifierInterval(conn *sql.DB, tc TmuxReader, notifier waitingNotifier, interval time.Duration) *Poller {
+	return NewWithClockInterval(conn, tc, notifier, time.Now, interval)
+}
+
+func NewWithClockInterval(conn *sql.DB, tc TmuxReader, notifier waitingNotifier, now func() time.Time, interval time.Duration) *Poller {
+	if interval <= 0 {
+		interval = time.Second
+	}
 	return &Poller{
 		conn:         conn,
 		tmux:         tc,
 		notifier:     notifier,
 		now:          now,
+		interval:     interval,
 		lastChange:   make(map[string]time.Time),
 		waitingSince: make(map[string]time.Time),
 		done:         make(chan struct{}),
@@ -58,7 +71,7 @@ func NewWithClock(conn *sql.DB, tc TmuxReader, notifier waitingNotifier, now fun
 
 func (p *Poller) Start() {
 	go func() {
-		ticker := time.NewTicker(time.Second)
+		ticker := time.NewTicker(p.interval)
 		defer ticker.Stop()
 		for {
 			select {
@@ -88,6 +101,10 @@ func (p *Poller) WaitingSinceSnapshot() map[string]time.Time {
 
 func (p *Poller) Now() time.Time {
 	return p.now()
+}
+
+func (p *Poller) Interval() time.Duration {
+	return p.interval
 }
 
 func (p *Poller) PollOnce() {
