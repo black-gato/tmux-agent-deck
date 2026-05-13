@@ -20,6 +20,7 @@ tmux-agent-deck/
 ├── main.go
 ├── cmd/
 │   ├── root.go          # cobra entrypoint, launchTUI() loop, openDB()
+│   ├── root_test.go     # headless mode + root flag tests
 │   ├── add.go           # `add` subcommand
 │   ├── list.go          # `list` subcommand
 │   ├── remove.go        # `remove` subcommand
@@ -39,24 +40,24 @@ tmux-agent-deck/
 │   │   ├── status.go    # DetectStatus() pure function
 │   │   └── status_test.go
 │   ├── state/
-│   │   ├── poller.go    # Poller: Start/Stop/PollOnce, TmuxReader interface
+│   │   ├── poller.go    # Poller: Start/Stop/PollOnce, TmuxReader interface, configurable interval
 │   │   └── poller_test.go
 │   ├── notify/
 │   │   ├── notify.go    # Notification policy + osascript integration
 │   │   └── notify_test.go
 │   ├── ui/
-│   │   ├── app.go       # Bubbletea Model, Init/Update/View, Reload()
+│   │   ├── app.go       # Bubbletea Model, Init/Update/View, Reload(), help/empty-state rendering
 │   │   ├── app_test.go
 │   │   ├── list.go      # ListItem, BuildTree(), RenderList()
 │   │   ├── list_test.go
 │   │   ├── dialog.go    # dialogState, updateDialog(), commitDialog()
-│   │   └── keys.go      # actionForKey() mapping
+│   │   └── keys.go      # actionForKey() mapping + exported help table
 │   └── testutil/
 │       ├── db.go        # OpenTestDB(t) helper
 │       └── tmux.go      # FakeTmuxClient for tests
 ```
 
-**Data flow:** `poller` reads tmux pane output every ~1s → writes status to DB → optionally emits notification events via `internal/notify` → `app` reads DB on tick → bubbletea re-renders.
+**Data flow:** `poller` reads tmux pane output on a configurable interval (`--poll`) → writes status to DB → optionally emits notification events via `internal/notify` → `app` reads DB on tick and re-renders, or `--headless` blocks on the poller without launching Bubble Tea.
 
 ## Key Design Decisions
 
@@ -106,7 +107,7 @@ go test ./...
 go build -o tmux-agent-deck .
 ```
 
-## In-Progress Features
+## Current Feature Set
 
 See `docs/superpowers/specs/` for approved designs and `docs/superpowers/plans/` for implementation plans.
 
@@ -123,3 +124,9 @@ After the split panel TUI, planned milestones in order:
 4. **M4 Session Configuration** — Project path picker, tool selection, group defaults, startup scripts
 5. **M5 Fleet Management** — Multi-select, bulk ops, archive/restore, tags
 6. **M6 Polish & Onboarding** — Session filter, help overlay, onboarding, configurable poll, headless mode
+
+Implemented milestones to date:
+1. **M1 Interaction Primitives** — complete
+2. **M3 Conductors + macOS Alerts** — complete
+3. **M5 Fleet Management** — complete
+4. **M6 Polish & Onboarding** — complete

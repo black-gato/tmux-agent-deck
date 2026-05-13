@@ -59,6 +59,12 @@ go build -o tmux-agent-deck .
 tmux-agent-deck
 ```
 
+### Run headless monitoring
+
+```bash
+tmux-agent-deck --headless --notify --notify-style digest --poll 2s
+```
+
 ### CLI Commands
 
 ```bash
@@ -76,6 +82,16 @@ tmux-agent-deck group delete <path>
 tmux-agent-deck group move <session> <group>
 ```
 
+### Global Flags
+
+```bash
+tmux-agent-deck --notify
+tmux-agent-deck --notify-style waiting|conductor|digest
+tmux-agent-deck --notify-quiet cooldown=10m,hours=22:00-07:00
+tmux-agent-deck --poll 500ms
+tmux-agent-deck --headless
+```
+
 ### TUI Keybindings
 
 | Key | Action |
@@ -83,19 +99,30 @@ tmux-agent-deck group move <session> <group>
 | `j` / `↓` | Move down |
 | `k` / `↑` | Move up |
 | `Enter` | Attach to session |
-| `Space` | Collapse / expand group |
+| `Space` | Collapse / expand group or select session |
 | `n` | New session in current group |
 | `g` | New group |
 | `m` | Move session to group |
 | `r` | Rename session or group |
 | `d` | Delete session or group |
+| `a` / `A` | Archive session / toggle archived view |
+| `x` | Send keys to a session or selection |
+| `f` | Fork session |
+| `b` | Broadcast to a group |
+| `e` | Edit notes |
+| `t` | Edit tags |
+| `c` / `C` | Set conductor / escalate to conductor |
+| `v` | Toggle full output view |
+| `/` | Filter session list |
+| `?` | Open keyboard shortcut help |
 | `q` | Quit |
 
 ## How It Works
 
 - State is stored in SQLite at `~/.tmux-agent-deck/state.db`
-- A background poller reads `tmux capture-pane` output every ~1s to detect session status
+- A background poller reads `tmux capture-pane` output on a configurable interval (`--poll`) to detect session status
 - The TUI reloads from the database on each tick and re-renders
+- `--headless` runs the same poller and notification pipeline without launching the TUI
 - Sessions inherit the default tool from their group at creation time
 
 ## Tech Stack
