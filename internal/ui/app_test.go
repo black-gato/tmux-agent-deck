@@ -803,6 +803,111 @@ func TestArchiveRestoresSessionFromArchivedView(t *testing.T) {
 	}
 }
 
+func TestEditTagsSavesSessionTags(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	db.CreateSession(conn, db.Session{
+		ID: "s1", Title: "my-app", GroupPath: "my-sessions",
+		ProjectPath: "/p", Tool: "claude", Status: "stopped", CreatedAt: 1000,
+	})
+	m := ui.NewModel(conn, nil, nil)
+	m.Reload()
+
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'t'}})
+	for _, r := range "backend api" {
+		m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	s, err := db.GetSession(conn, "s1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Tags != "backend api" {
+		t.Fatalf("tags: got %q want backend api", s.Tags)
+	}
+}
+
+func TestSearchFiltersSessionsByTagPrefix(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	db.CreateSession(conn, db.Session{
+		ID: "s1", Title: "api", GroupPath: "my-sessions",
+		ProjectPath: "/p", Tool: "claude", Status: "stopped", CreatedAt: 1001, Tags: "backend",
+	})
+	db.CreateSession(conn, db.Session{
+		ID: "s2", Title: "frontend", GroupPath: "my-sessions",
+		ProjectPath: "/p", Tool: "claude", Status: "stopped", CreatedAt: 1000, Tags: "ui",
+	})
+	m := ui.NewModel(conn, nil, nil)
+	m.Reload()
+
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	for _, r := range "#back" {
+		m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	foundAPI := false
+	foundFrontend := false
+	for _, item := range m.Items() {
+		if item.Kind != "session" {
+			continue
+		}
+		if item.Session.Title == "api" {
+			foundAPI = true
+		}
+		if item.Session.Title == "frontend" {
+			foundFrontend = true
+		}
+	}
+	if !foundAPI {
+		t.Fatal("expected tagged session to remain visible")
+	}
+	if foundFrontend {
+		t.Fatal("expected non-matching tagged session to be filtered out")
+	}
+}
+
+func TestSearchFiltersSessionsByTitle(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	db.CreateSession(conn, db.Session{
+		ID: "s1", Title: "api-server", GroupPath: "my-sessions",
+		ProjectPath: "/p", Tool: "claude", Status: "stopped", CreatedAt: 1001,
+	})
+	db.CreateSession(conn, db.Session{
+		ID: "s2", Title: "frontend", GroupPath: "my-sessions",
+		ProjectPath: "/p", Tool: "claude", Status: "stopped", CreatedAt: 1000,
+	})
+	m := ui.NewModel(conn, nil, nil)
+	m.Reload()
+
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	for _, r := range "api" {
+		m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	foundAPI := false
+	foundFrontend := false
+	for _, item := range m.Items() {
+		if item.Kind != "session" {
+			continue
+		}
+		if item.Session.Title == "api-server" {
+			foundAPI = true
+		}
+		if item.Session.Title == "frontend" {
+			foundFrontend = true
+		}
+	}
+	if !foundAPI {
+		t.Fatal("expected matching title to remain visible")
+	}
+	if foundFrontend {
+		t.Fatal("expected non-matching title to be filtered out")
+	}
+}
+
 func TestReloadAnnotatesWaitingSessionsWithElapsedTime(t *testing.T) {
 	conn := testutil.OpenTestDB(t)
 	fake := testutil.NewFakeTmuxClient()

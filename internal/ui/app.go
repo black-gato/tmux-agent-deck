@@ -37,6 +37,7 @@ type Model struct {
 	overdueWaiting int
 	selected       map[string]bool
 	showArchived   bool
+	searchQuery    string
 }
 
 func NewModel(conn *sql.DB, tc tmux.ClientIface, poller *state.Poller) *Model {
@@ -229,6 +230,12 @@ func (m *Model) updateNavigation(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.mode = "edit-notes"
 			m.dialog = dialogState{prompt: "", value: m.items[m.cursor].Session.Notes}
 		}
+	case "edit-tags":
+		if m.cursor < len(m.items) && m.items[m.cursor].Kind == "session" {
+			m.mode = "edit-tags"
+			m.dialog = newDialogState("Tags:")
+			m.dialog.value = m.items[m.cursor].Session.Tags
+		}
 	case "cycle-pane":
 		if len(m.panes) > 0 {
 			m.activePaneIdx = (m.activePaneIdx + 1) % len(m.panes)
@@ -266,6 +273,10 @@ func (m *Model) updateNavigation(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if err := m.Reload(); err != nil {
 			m.err = err
 		}
+	case "search":
+		m.mode = "search"
+		m.dialog = newDialogState("Search:")
+		m.dialog.value = m.searchQuery
 	}
 	return m, nil
 }
@@ -348,7 +359,7 @@ func (m *Model) renderAppHeader() string {
 
 func (m *Model) renderFooter() string {
 	footer := " Enter Attach  x Send  f Fork  b Broadcast  v Output  e Notes  n New  d Delete  q Quit"
-	footer += "  a Archive  A Archived"
+	footer += "  a Archive  A Archived  t Tags  / Search"
 	if len(m.selected) > 0 {
 		return fmt.Sprintf("[%d selected] %s", len(m.selected), footer)
 	}
@@ -388,9 +399,10 @@ func (m *Model) RenderDetailPanel(w, h int) string {
 	}
 	lines = append(lines, fmt.Sprintf(" %s  %s", s.Title, statusText))
 	lines = append(lines, fmt.Sprintf(" group: %s", s.GroupPath))
+	lines = append(lines, fmt.Sprintf(" tags: %s", s.Tags))
 	lines = append(lines, " "+renderPaneList(m.panes, m.activePaneIdx))
 
-	const sessionHeaderLines = 4
+	const sessionHeaderLines = 5
 	const notesLines = 5
 	outputH := h - sessionHeaderLines - notesLines - 1
 	if outputH < 0 {
@@ -571,12 +583,12 @@ func (m *Model) visibleGroups(groups []db.Group) []db.Group {
 }
 
 func (m *Model) visibleSessions(sessions []db.Session) []db.Session {
-	if m.showArchived {
-		return sessions
-	}
 	filtered := make([]db.Session, 0, len(sessions))
 	for _, session := range sessions {
-		if session.Archived {
+		if session.Archived && !m.showArchived {
+			continue
+		}
+		if !matchesSearchQuery(session, m.searchQuery) {
 			continue
 		}
 		filtered = append(filtered, session)
@@ -610,6 +622,23 @@ func (m *Model) toggleArchivedSession(session *db.Session) error {
 		}
 	}
 	return db.SetSessionArchived(m.conn, session.ID, !session.Archived)
+}
+
+func matchesSearchQuery(session db.Session, query string) bool {
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return true
+	}
+	if strings.HasPrefix(query, "#") {
+		prefix := strings.TrimPrefix(strings.ToLower(query), "#")
+		for _, tag := range strings.Fields(strings.ToLower(session.Tags)) {
+			if strings.HasPrefix(tag, prefix) {
+				return true
+			}
+		}
+		return false
+	}
+	return strings.Contains(strings.ToLower(session.Title), strings.ToLower(query))
 }
 
 // ensureStarted returns the tmux session name for s, spawning one if needed.

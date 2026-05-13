@@ -169,6 +169,13 @@ func (m *Model) commitDialog() {
 				m.err = err
 			}
 		}
+	case "edit-tags":
+		if m.cursor < len(m.items) && m.items[m.cursor].Kind == "session" {
+			s := m.items[m.cursor].Session
+			if err := db.UpdateSessionTags(m.conn, s.ID, strings.TrimSpace(m.dialog.value)); err != nil {
+				m.err = err
+			}
+		}
 	case "send-pane":
 		if m.dialog.value == "" {
 			return
@@ -249,5 +256,7 @@ func (m *Model) commitDialog() {
 				m.err = err
 			}
 		}
+	case "search":
+		m.searchQuery = strings.TrimSpace(m.dialog.value)
 	}
 }

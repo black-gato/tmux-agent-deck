@@ -23,9 +23,11 @@ var runeMap = map[rune]string{
 	'q': "quit",
 	'v': "toggle-full",
 	'e': "edit-notes",
+	't': "edit-tags",
 	'x': "send-pane",
 	'f': "fork-session",
 	'b': "broadcast",
+	'/': "search",
 }
 
 func actionForKey(msg tea.KeyMsg) string {

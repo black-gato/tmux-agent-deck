@@ -125,6 +125,18 @@ func UpdateSessionNotes(conn *sql.DB, id, notes string) error {
 	return nil
 }
 
+func UpdateSessionTags(conn *sql.DB, id, tags string) error {
+	res, err := conn.Exec(`UPDATE sessions SET tags = ? WHERE id = ?`, tags, id)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("update tags %q: %w", id, sql.ErrNoRows)
+	}
+	return nil
+}
+
 func RenameSession(conn *sql.DB, id, newTitle string) error {
 	res, err := conn.Exec(`UPDATE sessions SET title = ? WHERE id = ?`, newTitle, id)
 	if err != nil {
