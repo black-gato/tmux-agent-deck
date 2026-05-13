@@ -41,6 +41,9 @@ tmux-agent-deck/
 │   ├── state/
 │   │   ├── poller.go    # Poller: Start/Stop/PollOnce, TmuxReader interface
 │   │   └── poller_test.go
+│   ├── notify/
+│   │   ├── notify.go    # Notification policy + osascript integration
+│   │   └── notify_test.go
 │   ├── ui/
 │   │   ├── app.go       # Bubbletea Model, Init/Update/View, Reload()
 │   │   ├── app_test.go
@@ -53,7 +56,7 @@ tmux-agent-deck/
 │       └── tmux.go      # FakeTmuxClient for tests
 ```
 
-**Data flow:** `poller` reads tmux pane output every ~1s → writes status to DB → `app` reads DB on tick → bubbletea re-renders.
+**Data flow:** `poller` reads tmux pane output every ~1s → writes status to DB → optionally emits notification events via `internal/notify` → `app` reads DB on tick → bubbletea re-renders.
 
 ## Key Design Decisions
 
@@ -70,7 +73,7 @@ When attaching from outside tmux, `ctrl+q` (`C-q` in the tmux `root` table) is t
 All tmux operations go through `tmux.ClientIface`. Tests use `testutil.FakeTmuxClient` — never mock the real tmux binary in tests.
 
 ### Schema migrations
-Sequential version checks in `migrate()` using a `metadata` table (`key=schema_version`). Current version: 1. WAL/busy_timeout pragmas run on every open before migration.
+Sequential version checks in `migrate()` using a `metadata` table (`key=schema_version`). Current version: 4. WAL/busy_timeout pragmas run on every open before migration.
 
 ## Development Workflow
 
@@ -107,7 +110,7 @@ go build -o tmux-agent-deck .
 
 See `docs/superpowers/specs/` for approved designs and `docs/superpowers/plans/` for implementation plans.
 
-**Split panel TUI** (`docs/superpowers/specs/2026-05-09-split-panel-tui-design.md`, plan: `docs/superpowers/plans/2026-05-10-split-panel-tui.md`) — 6 of 9 tasks remain. Adds a persistent 35/65 split layout with a detail panel showing session name, group, pane programs, live output, and inline-editable notes.
+Current implementation and roadmap state are tracked in `docs/superpowers/specs/2026-05-10-roadmap.md` and the milestone plans under `docs/superpowers/plans/`.
 
 ## Roadmap
 

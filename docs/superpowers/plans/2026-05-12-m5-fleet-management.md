@@ -1,6 +1,6 @@
 # M5 Fleet Management Implementation Plan
 
-> Originally drafted as "M3" because `CLAUDE.md` listed Fleet Management as M3; the current roadmap (`docs/superpowers/specs/2026-05-10-roadmap.md`) defines Fleet Management as Milestone 5 (lines 101-117). Renamed to match the roadmap. M3 (Conductors + macOS Alerts) and M4 (Session Configuration) are still pending.
+> This plan matches the current roadmap milestone ordering: M5 is Fleet Management.
 
 **Goal:** Add multi-select, bulk session actions, archive/restore, and tags so the TUI can manage larger fleets without attaching to each tmux session individually.
 

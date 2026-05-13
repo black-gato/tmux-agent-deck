@@ -1,6 +1,6 @@
 # M3 Conductors And macOS Alerts Implementation Plan
 
-> The current roadmap file contents in this worktree still show fleet-management text at lines 65-75, but this plan follows the conductor/alerts scope explicitly provided by the conductor as authoritative for M3.
+> This plan matches the current roadmap milestone ordering: M3 is Conductors and macOS Alerts.
 
 **Goal:** Add group conductor ownership, conductor-targeted escalation, waiting digests, and tunable macOS notifications so waiting agents route attention to the right operator without noisy repeat alerts.
 
