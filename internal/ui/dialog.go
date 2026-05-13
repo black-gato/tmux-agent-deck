@@ -5,9 +5,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/black-gato/tmux-agent-deck/internal/db"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/google/uuid"
-	"github.com/black-gato/tmux-agent-deck/internal/db"
 )
 
 const defaultGroupPath = "my-sessions"
@@ -147,6 +147,14 @@ func (m *Model) commitDialog() {
 	case "move":
 		val := strings.TrimSpace(m.dialog.value)
 		if val == "" {
+			return
+		}
+		if len(m.selected) > 0 {
+			if err := db.MoveSessions(m.conn, m.selectedSessionIDs(), val); err != nil {
+				m.err = err
+				return
+			}
+			m.clearSelection()
 			return
 		}
 		if m.cursor < len(m.items) && m.items[m.cursor].Kind == "session" {

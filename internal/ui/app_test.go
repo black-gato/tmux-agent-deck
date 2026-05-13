@@ -600,6 +600,79 @@ func TestViewShowsSelectedCountInFooter(t *testing.T) {
 	}
 }
 
+func TestDeleteKillsSelectedSessions(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	fake := testutil.NewFakeTmuxClient()
+	db.CreateSession(conn, db.Session{
+		ID: "s1", Title: "first", GroupPath: "my-sessions", TmuxSession: "ad-s1",
+		ProjectPath: "/p", Tool: "claude", Status: "running", CreatedAt: 1001,
+	})
+	db.CreateSession(conn, db.Session{
+		ID: "s2", Title: "second", GroupPath: "my-sessions", TmuxSession: "ad-s2",
+		ProjectPath: "/p", Tool: "claude", Status: "waiting", CreatedAt: 1000,
+	})
+	m := ui.NewModel(conn, fake, nil)
+	m.Reload()
+
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	m.Update(tea.KeyMsg{Type: tea.KeySpace})
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	m.Update(tea.KeyMsg{Type: tea.KeySpace})
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
+
+	if len(fake.KillCalls) != 2 {
+		t.Fatalf("expected 2 kill calls, got %d", len(fake.KillCalls))
+	}
+	sessions, err := db.ListSessions(conn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sessions) != 0 {
+		t.Fatalf("expected 0 sessions, got %d", len(sessions))
+	}
+	if m.SelectedCount() != 0 {
+		t.Fatalf("selected count: got %d want 0", m.SelectedCount())
+	}
+}
+
+func TestMoveSelectedSessionsToPromptedGroup(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	db.CreateGroup(conn, db.Group{Path: "work", Name: "work", Expanded: true})
+	db.CreateSession(conn, db.Session{
+		ID: "s1", Title: "first", GroupPath: "my-sessions",
+		ProjectPath: "/p", Tool: "claude", Status: "running", CreatedAt: 1001,
+	})
+	db.CreateSession(conn, db.Session{
+		ID: "s2", Title: "second", GroupPath: "my-sessions",
+		ProjectPath: "/p", Tool: "claude", Status: "stopped", CreatedAt: 1000,
+	})
+	m := ui.NewModel(conn, nil, nil)
+	m.Reload()
+
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	m.Update(tea.KeyMsg{Type: tea.KeySpace})
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	m.Update(tea.KeyMsg{Type: tea.KeySpace})
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'m'}})
+	for _, r := range "work" {
+		m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	for _, id := range []string{"s1", "s2"} {
+		s, err := db.GetSession(conn, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if s.GroupPath != "work" {
+			t.Fatalf("%s group_path: got %q want work", id, s.GroupPath)
+		}
+	}
+	if m.SelectedCount() != 0 {
+		t.Fatalf("selected count: got %d want 0", m.SelectedCount())
+	}
+}
+
 func TestReloadAnnotatesWaitingSessionsWithElapsedTime(t *testing.T) {
 	conn := testutil.OpenTestDB(t)
 	fake := testutil.NewFakeTmuxClient()

@@ -3,6 +3,7 @@ package db
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 )
 
 type Session struct {
@@ -138,8 +139,48 @@ func MoveSession(conn *sql.DB, id, groupPath string) error {
 	return nil
 }
 
+func MoveSessions(conn *sql.DB, ids []string, groupPath string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	tx, err := conn.Begin()
+	if err != nil {
+		return err
+	}
+	for _, id := range ids {
+		res, err := tx.Exec(`UPDATE sessions SET group_path = ? WHERE id = ?`, groupPath, id)
+		if err != nil {
+			tx.Rollback()
+			return err
+		}
+		n, _ := res.RowsAffected()
+		if n == 0 {
+			tx.Rollback()
+			return fmt.Errorf("move session %q: %w", id, sql.ErrNoRows)
+		}
+	}
+	return tx.Commit()
+}
+
 func DeleteSession(conn *sql.DB, id string) error {
 	_, err := conn.Exec(`DELETE FROM sessions WHERE id = ?`, id)
+	return err
+}
+
+func DeleteSessions(conn *sql.DB, ids []string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	placeholders := make([]string, len(ids))
+	args := make([]any, len(ids))
+	for i, id := range ids {
+		placeholders[i] = "?"
+		args[i] = id
+	}
+	_, err := conn.Exec(
+		fmt.Sprintf(`DELETE FROM sessions WHERE id IN (%s)`, strings.Join(placeholders, ",")),
+		args...,
+	)
 	return err
 }
 

@@ -82,6 +82,27 @@ func TestMoveSession(t *testing.T) {
 	}
 }
 
+func TestMoveSessions(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	now := time.Now().Unix()
+	dbpkg.CreateGroup(conn, dbpkg.Group{Path: "work", Name: "work"})
+	dbpkg.CreateSession(conn, dbpkg.Session{ID: "s1", Title: "a", GroupPath: "my-sessions", ProjectPath: "/p", Tool: "claude", Status: "stopped", CreatedAt: now})
+	dbpkg.CreateSession(conn, dbpkg.Session{ID: "s2", Title: "b", GroupPath: "my-sessions", ProjectPath: "/p", Tool: "claude", Status: "stopped", CreatedAt: now})
+
+	if err := dbpkg.MoveSessions(conn, []string{"s1", "s2"}, "work"); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"s1", "s2"} {
+		s, err := dbpkg.GetSession(conn, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if s.GroupPath != "work" {
+			t.Errorf("%s group_path: got %q want work", id, s.GroupPath)
+		}
+	}
+}
+
 func TestDeleteSession(t *testing.T) {
 	conn := testutil.OpenTestDB(t)
 	now := time.Now().Unix()
@@ -93,6 +114,24 @@ func TestDeleteSession(t *testing.T) {
 	_, err := dbpkg.GetSession(conn, "s1")
 	if err == nil {
 		t.Errorf("expected error after delete")
+	}
+}
+
+func TestDeleteSessions(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	now := time.Now().Unix()
+	dbpkg.CreateSession(conn, dbpkg.Session{ID: "s1", Title: "a", GroupPath: "my-sessions", ProjectPath: "/p", Tool: "claude", Status: "stopped", CreatedAt: now})
+	dbpkg.CreateSession(conn, dbpkg.Session{ID: "s2", Title: "b", GroupPath: "my-sessions", ProjectPath: "/p", Tool: "claude", Status: "stopped", CreatedAt: now})
+
+	if err := dbpkg.DeleteSessions(conn, []string{"s1", "s2"}); err != nil {
+		t.Fatal(err)
+	}
+	sessions, err := dbpkg.ListSessions(conn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sessions) != 0 {
+		t.Fatalf("expected 0 sessions, got %d", len(sessions))
 	}
 }
 

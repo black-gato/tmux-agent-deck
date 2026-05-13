@@ -197,15 +197,25 @@ func (m *Model) updateNavigation(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.dialog = newDialogState("New name:")
 		}
 	case "move":
-		if m.cursor < len(m.items) && m.items[m.cursor].Kind == "session" {
+		if len(m.selected) > 0 || (m.cursor < len(m.items) && m.items[m.cursor].Kind == "session") {
 			m.mode = "move"
 			m.dialog = newDialogState("Move to group path:")
 		}
 	case "delete":
-		if m.cursor < len(m.items) {
+		if len(m.selected) > 0 {
+			if err := m.deleteSelectedSessions(); err != nil {
+				m.err = err
+			}
+			if err := m.Reload(); err != nil {
+				m.err = err
+			}
+		} else if m.cursor < len(m.items) {
 			item := m.items[m.cursor]
 			if item.Kind == "session" {
-				db.DeleteSession(m.conn, item.Session.ID)
+				if err := m.deleteSession(item.Session); err != nil {
+					m.err = err
+					break
+				}
 			} else if item.Kind == "group" && item.Group.Path != defaultGroupPath {
 				db.DeleteGroup(m.conn, item.Group.Path)
 			}
@@ -481,6 +491,54 @@ func (m *Model) pruneSelection() {
 			delete(m.selected, id)
 		}
 	}
+}
+
+func (m *Model) selectedSessionIDs() []string {
+	ids := make([]string, 0, len(m.selected))
+	for _, item := range m.items {
+		if item.Kind != "session" || !m.selected[item.Session.ID] {
+			continue
+		}
+		ids = append(ids, item.Session.ID)
+	}
+	return ids
+}
+
+func (m *Model) clearSelection() {
+	for id := range m.selected {
+		delete(m.selected, id)
+	}
+}
+
+func (m *Model) deleteSelectedSessions() error {
+	ids := m.selectedSessionIDs()
+	if len(ids) == 0 {
+		return nil
+	}
+	for _, item := range m.items {
+		if item.Kind != "session" || !m.selected[item.Session.ID] {
+			continue
+		}
+		if item.Session.TmuxSession != "" && m.tmuxC != nil {
+			if err := m.tmuxC.KillSession(item.Session.TmuxSession); err != nil {
+				return err
+			}
+		}
+	}
+	if err := db.DeleteSessions(m.conn, ids); err != nil {
+		return err
+	}
+	m.clearSelection()
+	return nil
+}
+
+func (m *Model) deleteSession(session *db.Session) error {
+	if session.TmuxSession != "" && m.tmuxC != nil {
+		if err := m.tmuxC.KillSession(session.TmuxSession); err != nil {
+			return err
+		}
+	}
+	return db.DeleteSession(m.conn, session.ID)
 }
 
 // ensureStarted returns the tmux session name for s, spawning one if needed.
