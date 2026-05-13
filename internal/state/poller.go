@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/black-gato/tmux-agent-deck/internal/db"
+	"github.com/black-gato/tmux-agent-deck/internal/notify"
 	"github.com/black-gato/tmux-agent-deck/internal/tmux"
 )
 
@@ -20,6 +21,7 @@ type TmuxReader interface {
 type Poller struct {
 	conn         *sql.DB
 	tmux         TmuxReader
+	notifier     waitingNotifier
 	now          func() time.Time
 	mu           sync.RWMutex
 	lastChange   map[string]time.Time
@@ -27,14 +29,25 @@ type Poller struct {
 	done         chan struct{}
 }
 
-func New(conn *sql.DB, tc TmuxReader) *Poller {
-	return NewWithClock(conn, tc, time.Now)
+type waitingNotifier interface {
+	Enabled() bool
+	Style() notify.Style
+	Notify(title, body string) error
 }
 
-func NewWithClock(conn *sql.DB, tc TmuxReader, now func() time.Time) *Poller {
+func New(conn *sql.DB, tc TmuxReader) *Poller {
+	return NewWithNotifier(conn, tc, notify.New(notify.Config{}))
+}
+
+func NewWithNotifier(conn *sql.DB, tc TmuxReader, notifier waitingNotifier) *Poller {
+	return NewWithClock(conn, tc, notifier, time.Now)
+}
+
+func NewWithClock(conn *sql.DB, tc TmuxReader, notifier waitingNotifier, now func() time.Time) *Poller {
 	return &Poller{
 		conn:         conn,
 		tmux:         tc,
+		notifier:     notifier,
 		now:          now,
 		lastChange:   make(map[string]time.Time),
 		waitingSince: make(map[string]time.Time),
@@ -115,6 +128,38 @@ func (p *Poller) PollOnce() {
 			if err := db.UpdateSessionStatus(p.conn, s.ID, newStatus); err != nil {
 				log.Printf("poller: update status %q: %v", s.ID, err)
 			}
+			if s.Status != tmux.StatusWaiting && newStatus == tmux.StatusWaiting {
+				p.notifyWaiting(s)
+			}
+		}
+	}
+}
+
+func (p *Poller) notifyWaiting(session db.Session) {
+	if p.notifier == nil || !p.notifier.Enabled() {
+		return
+	}
+	switch p.notifier.Style() {
+	case notify.StyleDigest:
+		return
+	case notify.StyleConductor:
+		conductor, err := db.GetGroupConductorSession(p.conn, session.GroupPath)
+		if err != nil || conductor.Title == "" {
+			return
+		}
+		if conductor.ID == session.ID {
+			return
+		}
+		title := "Conductor alert"
+		body := conductor.Title + ": " + session.Title + " is waiting"
+		if err := p.notifier.Notify(title, body); err != nil {
+			log.Printf("poller: notify conductor %q: %v", session.ID, err)
+		}
+	default:
+		title := "Agent waiting"
+		body := session.Title + " is waiting"
+		if err := p.notifier.Notify(title, body); err != nil {
+			log.Printf("poller: notify waiting %q: %v", session.ID, err)
 		}
 	}
 }

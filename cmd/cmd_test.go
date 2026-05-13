@@ -48,3 +48,13 @@ func TestGroupCreateAndMove(t *testing.T) {
 		t.Errorf("session missing from list after move: %s", out.String())
 	}
 }
+
+func TestListAcceptsNotifyFlags(t *testing.T) {
+	dbPath := t.TempDir() + "/test.db"
+	t.Setenv("AGENT_DECK_DB", dbPath)
+
+	var out bytes.Buffer
+	if err := cmd.RunWith([]string{"--notify", "--notify-style", "digest", "list"}, &out); err != nil {
+		t.Fatalf("list with notify flags: %v", err)
+	}
+}

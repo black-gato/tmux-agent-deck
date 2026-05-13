@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/black-gato/tmux-agent-deck/internal/db"
+	"github.com/black-gato/tmux-agent-deck/internal/notify"
 	"github.com/black-gato/tmux-agent-deck/internal/state"
 	"github.com/black-gato/tmux-agent-deck/internal/testutil"
 )
@@ -104,7 +105,7 @@ func TestPollerTracksWaitingSinceForExistingWaitingSession(t *testing.T) {
 	})
 
 	stub := &stubTmux{output: "Some output\n> ", exists: true}
-	p := state.NewWithClock(conn, stub, func() time.Time { return now })
+	p := state.NewWithClock(conn, stub, notify.New(notify.Config{}), func() time.Time { return now })
 	p.PollOnce()
 
 	waitingSince := p.WaitingSinceSnapshot()
@@ -132,7 +133,7 @@ func TestPollerClearsWaitingSinceWhenSessionLeavesWaiting(t *testing.T) {
 	})
 
 	stub := &stubTmux{output: "Some output\n> ", exists: true}
-	p := state.NewWithClock(conn, stub, func() time.Time { return current })
+	p := state.NewWithClock(conn, stub, notify.New(notify.Config{}), func() time.Time { return current })
 	p.PollOnce()
 
 	current = current.Add(35 * time.Second)
@@ -157,3 +158,92 @@ func (s *countingStub) CapturePaneOutput(name string) (string, error) {
 	return "", nil
 }
 func (s *countingStub) SessionExists(name string) (bool, error) { return true, nil }
+
+type recordingNotifier struct {
+	enabled bool
+	style   notify.Style
+	calls   []notifyCall
+}
+
+type notifyCall struct {
+	title string
+	body  string
+}
+
+func (n *recordingNotifier) Enabled() bool       { return n.enabled }
+func (n *recordingNotifier) Style() notify.Style { return n.style }
+func (n *recordingNotifier) Notify(title, body string) error {
+	n.calls = append(n.calls, notifyCall{title: title, body: body})
+	return nil
+}
+
+func TestPollerWaitingStyleSendsDirectAlert(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	now := time.Now().Unix()
+	db.CreateSession(conn, db.Session{
+		ID: "s1", Title: "worker", GroupPath: "my-sessions", TmuxSession: "tmux-s1",
+		ProjectPath: "/p", Tool: "claude", Status: "running", CreatedAt: now,
+	})
+
+	stub := &stubTmux{output: "Some output\n> ", exists: true}
+	notifier := &recordingNotifier{enabled: true, style: notify.StyleWaiting}
+	p := state.NewWithClock(conn, stub, notifier, time.Now)
+	p.PollOnce()
+
+	if len(notifier.calls) != 1 {
+		t.Fatalf("expected 1 notification, got %d", len(notifier.calls))
+	}
+	if notifier.calls[0].title != "Agent waiting" {
+		t.Fatalf("title: got %q want %q", notifier.calls[0].title, "Agent waiting")
+	}
+}
+
+func TestPollerConductorStyleTargetsConductor(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	now := time.Now().Unix()
+	db.CreateGroup(conn, db.Group{Path: "work", Name: "work", ConductorSessionID: "lead"})
+	db.CreateSession(conn, db.Session{
+		ID: "lead", Title: "lead", GroupPath: "work", TmuxSession: "tmux-lead",
+		ProjectPath: "/p", Tool: "claude", Status: "running", CreatedAt: now,
+	})
+	db.CreateSession(conn, db.Session{
+		ID: "worker", Title: "worker", GroupPath: "work", TmuxSession: "tmux-worker",
+		ProjectPath: "/p", Tool: "claude", Status: "running", CreatedAt: now,
+	})
+
+	stub := &stubTmux{output: "Some output\n> ", exists: true}
+	notifier := &recordingNotifier{enabled: true, style: notify.StyleConductor}
+	p := state.NewWithClock(conn, stub, notifier, time.Now)
+	p.PollOnce()
+
+	if len(notifier.calls) != 1 {
+		t.Fatalf("expected 1 notification, got %d", len(notifier.calls))
+	}
+	found := false
+	for _, call := range notifier.calls {
+		if call.title == "Conductor alert" && call.body == "lead: worker is waiting" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected conductor alert, got %#v", notifier.calls)
+	}
+}
+
+func TestPollerDigestStyleSuppressesImmediateAlert(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	now := time.Now().Unix()
+	db.CreateSession(conn, db.Session{
+		ID: "s1", Title: "worker", GroupPath: "my-sessions", TmuxSession: "tmux-s1",
+		ProjectPath: "/p", Tool: "claude", Status: "running", CreatedAt: now,
+	})
+
+	stub := &stubTmux{output: "Some output\n> ", exists: true}
+	notifier := &recordingNotifier{enabled: true, style: notify.StyleDigest}
+	p := state.NewWithClock(conn, stub, notifier, time.Now)
+	p.PollOnce()
+
+	if len(notifier.calls) != 0 {
+		t.Fatalf("expected 0 notifications, got %d", len(notifier.calls))
+	}
+}
