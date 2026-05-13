@@ -142,6 +142,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		return m, tea.ClearScreen
 	case tea.KeyMsg:
+		if m.mode == "help" {
+			return m.updateHelp(msg)
+		}
 		if m.mode != "" {
 			return m.updateDialog(msg)
 		}
@@ -236,6 +239,8 @@ func (m *Model) updateNavigation(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "toggle-full":
 		m.viewFull = !m.viewFull
+	case "help":
+		m.mode = "help"
 	case "edit-notes":
 		if m.cursor < len(m.items) && m.items[m.cursor].Kind == "session" {
 			m.mode = "edit-notes"
@@ -328,6 +333,10 @@ func (m *Model) View() string {
 	header := m.renderAppHeader()
 	footer := m.renderFooter()
 
+	if m.mode == "help" {
+		return header + "\n" + strings.Repeat("─", m.width) + "\n" + m.renderHelpOverlay(m.width, contentH) + "\n" + footer
+	}
+
 	if m.viewFull {
 		sep := strings.Repeat("─", m.width)
 		detail := m.RenderDetailPanel(m.width, contentH)
@@ -385,11 +394,54 @@ func (m *Model) renderAppHeader() string {
 
 func (m *Model) renderFooter() string {
 	footer := " Enter Attach  x Send  f Fork  b Broadcast  v Output  e Notes  n New  d Delete  q Quit"
-	footer += "  a Archive  A Archived  c Conductor  t Tags  / Filter"
+	footer += "  a Archive  A Archived  c Conductor  t Tags  / Filter  ? Help"
 	if len(m.selected) > 0 {
 		return fmt.Sprintf("[%d selected] %s", len(m.selected), footer)
 	}
 	return footer
+}
+
+func (m *Model) updateHelp(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEsc:
+		m.mode = ""
+		return m, nil
+	}
+	switch actionForKey(msg) {
+	case "help", "quit":
+		m.mode = ""
+		return m, nil
+	}
+	return m, nil
+}
+
+func (m *Model) renderHelpOverlay(width, height int) string {
+	lines := []string{"KEYBOARD SHORTCUTS", ""}
+	currentSection := ""
+	for _, binding := range KeyBindings {
+		if binding.Section != currentSection {
+			if currentSection != "" {
+				lines = append(lines, "")
+			}
+			currentSection = binding.Section
+			lines = append(lines, strings.ToUpper(currentSection))
+		}
+		lines = append(lines, fmt.Sprintf(" %-8s %s", binding.Key, binding.Description))
+	}
+	lines = append(lines, "", "Press ? or q to close")
+	if height > 0 && len(lines) > height {
+		lines = lines[:height]
+	}
+	for len(lines) < height {
+		lines = append(lines, "")
+	}
+	if width <= 0 {
+		return strings.Join(lines, "\n")
+	}
+	for i := range lines {
+		lines[i] = truncate(lines[i], width)
+	}
+	return strings.Join(lines, "\n")
 }
 
 func tick() tea.Cmd {

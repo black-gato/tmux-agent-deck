@@ -989,6 +989,66 @@ func TestEscClearsAppliedFilter(t *testing.T) {
 	}
 }
 
+func TestQuestionMarkOpensHelpOverlay(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	m := ui.NewModel(conn, nil, nil)
+	m.Reload()
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}})
+
+	if m.Mode() != "help" {
+		t.Fatalf("mode: got %q want help", m.Mode())
+	}
+	view := m.View()
+	if !strings.Contains(view, "KEYBOARD SHORTCUTS") {
+		t.Fatalf("help overlay missing title: %q", view)
+	}
+	if !strings.Contains(view, "?") || !strings.Contains(view, "Help") {
+		t.Fatalf("help overlay missing key binding table: %q", view)
+	}
+}
+
+func TestQuestionMarkDismissesHelpOverlayAndPreservesCursor(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	db.CreateSession(conn, db.Session{
+		ID: "s1", Title: "my-app", GroupPath: "my-sessions",
+		ProjectPath: "/p", Tool: "claude", Status: "stopped", CreatedAt: 1000,
+	})
+	m := ui.NewModel(conn, nil, nil)
+	m.Reload()
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	before := m.Cursor()
+
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}})
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}})
+
+	if m.Mode() != "" {
+		t.Fatalf("mode: got %q want empty", m.Mode())
+	}
+	if m.Cursor() != before {
+		t.Fatalf("cursor: got %d want %d", m.Cursor(), before)
+	}
+}
+
+func TestQDismissesHelpOverlayWithoutQuitting(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	m := ui.NewModel(conn, nil, nil)
+	m.Reload()
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}})
+	model, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
+
+	if model.(*ui.Model).Mode() != "" {
+		t.Fatalf("mode: got %q want empty", model.(*ui.Model).Mode())
+	}
+	if cmd != nil {
+		t.Fatal("q in help overlay should dismiss overlay, not quit")
+	}
+}
+
 func TestCOnSessionSetsGroupConductor(t *testing.T) {
 	conn := testutil.OpenTestDB(t)
 	db.CreateGroup(conn, db.Group{Path: "work", Name: "work", Expanded: true})
