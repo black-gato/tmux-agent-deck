@@ -29,7 +29,7 @@ var runeMap = map[rune]string{
 	'f': "fork-session",
 	'b': "broadcast",
 	'C': "escalate-conductor",
-	'/': "search",
+	'/': "filter",
 }
 
 func actionForKey(msg tea.KeyMsg) string {

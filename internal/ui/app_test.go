@@ -829,6 +829,21 @@ func TestEditTagsSavesSessionTags(t *testing.T) {
 	}
 }
 
+func TestSlashOpensFilterDialog(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	m := ui.NewModel(conn, nil, nil)
+	m.Reload()
+
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+
+	if m.Mode() != "filter" {
+		t.Fatalf("mode: got %q want filter", m.Mode())
+	}
+	if !strings.Contains(m.View(), "Filter:") {
+		t.Fatalf("view missing filter prompt: %q", m.View())
+	}
+}
+
 func TestSearchFiltersSessionsByTagPrefix(t *testing.T) {
 	conn := testutil.OpenTestDB(t)
 	db.CreateSession(conn, db.Session{
@@ -906,6 +921,71 @@ func TestSearchFiltersSessionsByTitle(t *testing.T) {
 	}
 	if foundFrontend {
 		t.Fatal("expected non-matching title to be filtered out")
+	}
+}
+
+func TestFilterCollapsesGroupsWithoutMatches(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	db.CreateGroup(conn, db.Group{Path: "work", Name: "work", Expanded: true})
+	db.CreateSession(conn, db.Session{
+		ID: "s1", Title: "frontend", GroupPath: "my-sessions",
+		ProjectPath: "/p", Tool: "claude", Status: "stopped", CreatedAt: 1001,
+	})
+	db.CreateSession(conn, db.Session{
+		ID: "s2", Title: "backend", GroupPath: "work",
+		ProjectPath: "/p", Tool: "claude", Status: "stopped", CreatedAt: 1000,
+	})
+	m := ui.NewModel(conn, nil, nil)
+	m.Reload()
+
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	for _, r := range "front" {
+		m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	for _, item := range m.Items() {
+		if item.Kind == "group" && item.Group.Path == "work" {
+			t.Fatalf("non-matching group should be hidden: %#v", m.Items())
+		}
+	}
+}
+
+func TestEscClearsAppliedFilter(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	db.CreateSession(conn, db.Session{
+		ID: "s1", Title: "api-server", GroupPath: "my-sessions",
+		ProjectPath: "/p", Tool: "claude", Status: "stopped", CreatedAt: 1001,
+	})
+	db.CreateSession(conn, db.Session{
+		ID: "s2", Title: "frontend", GroupPath: "my-sessions",
+		ProjectPath: "/p", Tool: "claude", Status: "stopped", CreatedAt: 1000,
+	})
+	m := ui.NewModel(conn, nil, nil)
+	m.Reload()
+
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	for _, r := range "api" {
+		m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+
+	foundAPI := false
+	foundFrontend := false
+	for _, item := range m.Items() {
+		if item.Kind != "session" {
+			continue
+		}
+		if item.Session.Title == "api-server" {
+			foundAPI = true
+		}
+		if item.Session.Title == "frontend" {
+			foundFrontend = true
+		}
+	}
+	if !foundAPI || !foundFrontend {
+		t.Fatalf("expected all sessions after clearing filter, got %#v", m.Items())
 	}
 }
 

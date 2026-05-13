@@ -64,7 +64,8 @@ func (m *Model) Reload() error {
 	}
 	m.groups = groups
 	m.sessions = sessions
-	m.items = BuildTree(m.visibleGroups(groups), m.visibleSessions(sessions))
+	visibleSessions := m.visibleSessions(sessions)
+	m.items = BuildTree(m.visibleGroups(groups, visibleSessions), visibleSessions)
 	m.pruneSelection()
 	for i := range m.items {
 		if m.items[i].Kind == "session" && m.selected[m.items[i].Session.ID] {
@@ -150,6 +151,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) updateNavigation(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if msg.Type == tea.KeyEsc && m.searchQuery != "" {
+		m.searchQuery = ""
+		if err := m.Reload(); err != nil {
+			m.err = err
+		}
+		return m, nil
+	}
 	action := actionForKey(msg)
 	switch action {
 	case "down":
@@ -291,9 +299,9 @@ func (m *Model) updateNavigation(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if err := m.Reload(); err != nil {
 			m.err = err
 		}
-	case "search":
-		m.mode = "search"
-		m.dialog = newDialogState("Search:")
+	case "filter":
+		m.mode = "filter"
+		m.dialog = newDialogState("Filter:")
 		m.dialog.value = m.searchQuery
 	}
 	return m, nil
@@ -377,7 +385,7 @@ func (m *Model) renderAppHeader() string {
 
 func (m *Model) renderFooter() string {
 	footer := " Enter Attach  x Send  f Fork  b Broadcast  v Output  e Notes  n New  d Delete  q Quit"
-	footer += "  a Archive  A Archived  c Conductor  t Tags  / Search"
+	footer += "  a Archive  A Archived  c Conductor  t Tags  / Filter"
 	if len(m.selected) > 0 {
 		return fmt.Sprintf("[%d selected] %s", len(m.selected), footer)
 	}
@@ -587,7 +595,32 @@ func (m *Model) deleteSession(session *db.Session) error {
 	return db.DeleteSession(m.conn, session.ID)
 }
 
-func (m *Model) visibleGroups(groups []db.Group) []db.Group {
+func (m *Model) visibleGroups(groups []db.Group, sessions []db.Session) []db.Group {
+	if strings.TrimSpace(m.searchQuery) != "" {
+		matchingGroups := make(map[string]bool)
+		for _, session := range sessions {
+			groupPath := session.GroupPath
+			for {
+				matchingGroups[groupPath] = true
+				idx := strings.LastIndex(groupPath, "/")
+				if idx == -1 {
+					break
+				}
+				groupPath = groupPath[:idx]
+			}
+		}
+		filtered := make([]db.Group, 0, len(groups))
+		for _, group := range groups {
+			if !matchingGroups[group.Path] {
+				continue
+			}
+			if group.Path == "archived" && !m.showArchived {
+				continue
+			}
+			filtered = append(filtered, group)
+		}
+		return filtered
+	}
 	if m.showArchived {
 		return groups
 	}

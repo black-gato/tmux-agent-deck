@@ -256,7 +256,7 @@ func (m *Model) commitDialog() {
 				m.err = err
 			}
 		}
-	case "search":
+	case "filter":
 		m.searchQuery = strings.TrimSpace(m.dialog.value)
 	}
 }
