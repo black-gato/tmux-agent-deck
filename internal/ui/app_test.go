@@ -673,6 +673,52 @@ func TestMoveSelectedSessionsToPromptedGroup(t *testing.T) {
 	}
 }
 
+func TestSendPaneSendsToSelectedRunningSessions(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	fake := testutil.NewFakeTmuxClient()
+	db.CreateSession(conn, db.Session{
+		ID: "s1", Title: "first", GroupPath: "my-sessions", TmuxSession: "ad-s1",
+		ProjectPath: "/p", Tool: "claude", Status: "running", CreatedAt: 1002,
+	})
+	db.CreateSession(conn, db.Session{
+		ID: "s2", Title: "second", GroupPath: "my-sessions", TmuxSession: "ad-s2",
+		ProjectPath: "/p", Tool: "claude", Status: "waiting", CreatedAt: 1001,
+	})
+	db.CreateSession(conn, db.Session{
+		ID: "s3", Title: "third", GroupPath: "my-sessions", TmuxSession: "ad-s3",
+		ProjectPath: "/p", Tool: "claude", Status: "stopped", CreatedAt: 1000,
+	})
+	m := ui.NewModel(conn, fake, nil)
+	m.Reload()
+
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	m.Update(tea.KeyMsg{Type: tea.KeySpace})
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	m.Update(tea.KeyMsg{Type: tea.KeySpace})
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	m.Update(tea.KeyMsg{Type: tea.KeySpace})
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
+	for _, r := range "hello" {
+		m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	if len(fake.SentKeys) != 1 {
+		t.Fatalf("expected 1 SendKeys call, got %d", len(fake.SentKeys))
+	}
+	for _, call := range fake.SentKeys {
+		if call.Keys != "hello" {
+			t.Fatalf("keys: got %q want hello", call.Keys)
+		}
+		if call.PaneIndex != 0 {
+			t.Fatalf("pane index: got %d want 0", call.PaneIndex)
+		}
+	}
+	if m.SelectedCount() != 0 {
+		t.Fatalf("selected count: got %d want 0", m.SelectedCount())
+	}
+}
+
 func TestReloadAnnotatesWaitingSessionsWithElapsedTime(t *testing.T) {
 	conn := testutil.OpenTestDB(t)
 	fake := testutil.NewFakeTmuxClient()

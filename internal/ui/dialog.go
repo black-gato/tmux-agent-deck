@@ -173,6 +173,23 @@ func (m *Model) commitDialog() {
 		if m.dialog.value == "" {
 			return
 		}
+		if len(m.selected) > 0 {
+			for _, item := range m.items {
+				if item.Kind != "session" || !m.selected[item.Session.ID] {
+					continue
+				}
+				s := item.Session
+				if s.Status != "running" || s.TmuxSession == "" {
+					continue
+				}
+				if err := m.tmuxC.SendKeys(s.TmuxSession, 0, m.dialog.value); err != nil {
+					m.err = err
+					return
+				}
+			}
+			m.clearSelection()
+			return
+		}
 		if m.cursor < len(m.items) && m.items[m.cursor].Kind == "session" {
 			s := m.items[m.cursor].Session
 			if s.TmuxSession == "" {
