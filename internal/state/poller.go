@@ -3,6 +3,7 @@ package state
 import (
 	"database/sql"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -95,6 +96,7 @@ func (p *Poller) PollOnce() {
 		log.Printf("poller: list sessions: %v", err)
 		return
 	}
+	digestGroups := make(map[string]bool)
 	for _, s := range sessions {
 		if s.Status == tmux.StatusStopped || s.TmuxSession == "" {
 			p.clearSessionState(s.ID)
@@ -129,9 +131,16 @@ func (p *Poller) PollOnce() {
 				log.Printf("poller: update status %q: %v", s.ID, err)
 			}
 			if s.Status != tmux.StatusWaiting && newStatus == tmux.StatusWaiting {
-				p.notifyWaiting(s)
+				if p.notifier != nil && p.notifier.Style() == notify.StyleDigest {
+					digestGroups[s.GroupPath] = true
+				} else {
+					p.notifyWaiting(s)
+				}
 			}
 		}
+	}
+	for groupPath := range digestGroups {
+		p.notifyDigest(groupPath)
 	}
 }
 
@@ -162,6 +171,33 @@ func (p *Poller) notifyWaiting(session db.Session) {
 			log.Printf("poller: notify waiting %q: %v", session.ID, err)
 		}
 	}
+}
+
+func (p *Poller) notifyDigest(groupPath string) {
+	conductor, err := db.GetGroupConductorSession(p.conn, groupPath)
+	if err != nil || conductor.Title == "" {
+		return
+	}
+	waiting, err := db.ListWaitingGroupChildren(p.conn, groupPath)
+	if err != nil || len(waiting) == 0 {
+		return
+	}
+	if err := p.notifier.Notify("Conductor digest", p.digestBody(conductor.Title, waiting)); err != nil {
+		log.Printf("poller: notify digest %q: %v", groupPath, err)
+	}
+}
+
+func (p *Poller) digestBody(conductorTitle string, sessions []db.Session) string {
+	lines := make([]string, 0, len(sessions)+1)
+	lines = append(lines, conductorTitle+": waiting sessions")
+	for _, session := range sessions {
+		line := "- " + session.Title
+		if session.Notes != "" {
+			line += ": " + session.Notes
+		}
+		lines = append(lines, line)
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (p *Poller) clearSessionState(id string) {

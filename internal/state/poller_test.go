@@ -1,6 +1,7 @@
 package state_test
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -233,9 +234,14 @@ func TestPollerConductorStyleTargetsConductor(t *testing.T) {
 func TestPollerDigestStyleSuppressesImmediateAlert(t *testing.T) {
 	conn := testutil.OpenTestDB(t)
 	now := time.Now().Unix()
+	db.CreateGroup(conn, db.Group{Path: "work", Name: "work", ConductorSessionID: "lead"})
 	db.CreateSession(conn, db.Session{
-		ID: "s1", Title: "worker", GroupPath: "my-sessions", TmuxSession: "tmux-s1",
-		ProjectPath: "/p", Tool: "claude", Status: "running", CreatedAt: now,
+		ID: "lead", Title: "lead", GroupPath: "work", TmuxSession: "tmux-lead",
+		ProjectPath: "/p", Tool: "claude", Status: "running", CreatedAt: now + 1,
+	})
+	db.CreateSession(conn, db.Session{
+		ID: "s1", Title: "worker", GroupPath: "work", TmuxSession: "tmux-s1",
+		ProjectPath: "/p", Tool: "claude", Status: "running", CreatedAt: now, Notes: "blocked on review",
 	})
 
 	stub := &stubTmux{output: "Some output\n> ", exists: true}
@@ -243,7 +249,59 @@ func TestPollerDigestStyleSuppressesImmediateAlert(t *testing.T) {
 	p := state.NewWithClock(conn, stub, notifier, time.Now)
 	p.PollOnce()
 
-	if len(notifier.calls) != 0 {
-		t.Fatalf("expected 0 notifications, got %d", len(notifier.calls))
+	if len(notifier.calls) != 1 {
+		t.Fatalf("expected 1 notification, got %d", len(notifier.calls))
+	}
+	if notifier.calls[0].title != "Conductor digest" {
+		t.Fatalf("title: got %q want %q", notifier.calls[0].title, "Conductor digest")
+	}
+	if !strings.Contains(notifier.calls[0].body, "lead: waiting sessions") {
+		t.Fatalf("digest missing conductor header: %q", notifier.calls[0].body)
+	}
+	if !strings.Contains(notifier.calls[0].body, "- worker: blocked on review") {
+		t.Fatalf("digest missing waiting child summary: %q", notifier.calls[0].body)
+	}
+}
+
+func TestPollerDigestSummarizesAllWaitingChildren(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	now := time.Now().Unix()
+	db.CreateGroup(conn, db.Group{Path: "work", Name: "work", ConductorSessionID: "lead"})
+	for _, session := range []db.Session{
+		{
+			ID: "lead", Title: "lead", GroupPath: "work", TmuxSession: "tmux-lead",
+			ProjectPath: "/p", Tool: "claude", Status: "running", CreatedAt: now + 2,
+		},
+		{
+			ID: "worker-1", Title: "worker-1", GroupPath: "work", TmuxSession: "tmux-worker-1",
+			ProjectPath: "/p", Tool: "claude", Status: "waiting", CreatedAt: now + 1, Notes: "needs API key",
+		},
+		{
+			ID: "worker-2", Title: "worker-2", GroupPath: "work", TmuxSession: "tmux-worker-2",
+			ProjectPath: "/p", Tool: "claude", Status: "running", CreatedAt: now,
+		},
+	} {
+		if err := db.CreateSession(conn, session); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	stub := &stubTmux{output: "Some output\n> ", exists: true}
+	notifier := &recordingNotifier{enabled: true, style: notify.StyleDigest}
+	p := state.NewWithClock(conn, stub, notifier, time.Now)
+	p.PollOnce()
+
+	if len(notifier.calls) != 1 {
+		t.Fatalf("expected 1 notification, got %d", len(notifier.calls))
+	}
+	body := notifier.calls[0].body
+	if !strings.Contains(body, "- worker-1: needs API key") {
+		t.Fatalf("digest missing existing waiting child: %q", body)
+	}
+	if !strings.Contains(body, "- worker-2") {
+		t.Fatalf("digest missing newly waiting child: %q", body)
+	}
+	if strings.Contains(body, "- lead") {
+		t.Fatalf("digest should exclude conductor: %q", body)
 	}
 }

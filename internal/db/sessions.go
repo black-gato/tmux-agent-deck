@@ -104,6 +104,22 @@ func ListSessionsByGroup(conn *sql.DB, groupPath string) ([]Session, error) {
 	return scanSessions(rows)
 }
 
+func ListWaitingGroupChildren(conn *sql.DB, groupPath string) ([]Session, error) {
+	rows, err := conn.Query(
+		`SELECT s.id, s.title, s.group_path, s.tmux_session, s.project_path, s.tool, s.status, s.created_at, s.last_active, s.notes, s.archived, s.tags
+		 FROM sessions s
+		 JOIN groups g ON g.path = s.group_path
+		 WHERE s.group_path = ? AND s.status = ? AND s.id != g.conductor_session_id
+		 ORDER BY s.created_at DESC`,
+		groupPath, "waiting",
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanSessions(rows)
+}
+
 func UpdateSessionStatus(conn *sql.DB, id, status string) error {
 	res, err := conn.Exec(
 		`UPDATE sessions SET status = ?, last_active = strftime('%s','now') WHERE id = ?`,

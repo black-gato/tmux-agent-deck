@@ -300,3 +300,44 @@ func TestGetGroupConductorSession(t *testing.T) {
 		t.Fatalf("conductor id: got %q want %q", s.ID, "s1")
 	}
 }
+
+func TestListWaitingGroupChildren(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	now := time.Now().Unix()
+	if err := dbpkg.CreateGroup(conn, dbpkg.Group{Path: "work", Name: "work", ConductorSessionID: "lead"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, session := range []dbpkg.Session{
+		{
+			ID: "lead", Title: "lead", GroupPath: "work", TmuxSession: "ad-lead",
+			ProjectPath: "/p", Tool: "claude", Status: "waiting", CreatedAt: now,
+		},
+		{
+			ID: "worker-1", Title: "worker-1", GroupPath: "work", TmuxSession: "ad-worker-1",
+			ProjectPath: "/p", Tool: "claude", Status: "waiting", CreatedAt: now + 1, Notes: "needs review",
+		},
+		{
+			ID: "worker-2", Title: "worker-2", GroupPath: "work", TmuxSession: "ad-worker-2",
+			ProjectPath: "/p", Tool: "claude", Status: "waiting", CreatedAt: now + 2,
+		},
+		{
+			ID: "running", Title: "running", GroupPath: "work", TmuxSession: "ad-running",
+			ProjectPath: "/p", Tool: "claude", Status: "running", CreatedAt: now + 3,
+		},
+	} {
+		if err := dbpkg.CreateSession(conn, session); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	sessions, err := dbpkg.ListWaitingGroupChildren(conn, "work")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sessions) != 2 {
+		t.Fatalf("expected 2 waiting children, got %d", len(sessions))
+	}
+	if sessions[0].ID != "worker-2" || sessions[1].ID != "worker-1" {
+		t.Fatalf("unexpected sessions order/content: %#v", sessions)
+	}
+}
