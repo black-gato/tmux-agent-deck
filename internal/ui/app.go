@@ -244,6 +244,10 @@ func (m *Model) updateNavigation(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.err = err
 			}
 		}
+	case "escalate-conductor":
+		if err := m.escalateSelectedSession(); err != nil {
+			m.err = err
+		}
 	case "edit-tags":
 		if m.cursor < len(m.items) && m.items[m.cursor].Kind == "session" {
 			m.mode = "edit-tags"
@@ -618,6 +622,46 @@ func (m *Model) isConductorSession(session *db.Session) bool {
 		}
 	}
 	return false
+}
+
+func (m *Model) escalateSelectedSession() error {
+	if m.cursor >= len(m.items) || m.items[m.cursor].Kind != "session" {
+		return nil
+	}
+	session := m.items[m.cursor].Session
+	if session.Status != tmux.StatusWaiting {
+		return fmt.Errorf("session %q is not waiting", session.Title)
+	}
+	conductor, err := db.GetGroupConductorSession(m.conn, session.GroupPath)
+	if err != nil {
+		return fmt.Errorf("resolve conductor for %q: %w", session.GroupPath, err)
+	}
+	if conductor.ID == session.ID {
+		return fmt.Errorf("session %q is already the conductor", session.Title)
+	}
+	if conductor.Status != tmux.StatusRunning || conductor.TmuxSession == "" {
+		return fmt.Errorf("conductor %q is not running", conductor.Title)
+	}
+	if m.tmuxC == nil {
+		return fmt.Errorf("tmux client unavailable")
+	}
+	return m.tmuxC.SendKeys(conductor.TmuxSession, 0, m.escalationMessage(session))
+}
+
+func (m *Model) escalationMessage(session *db.Session) string {
+	lines := []string{
+		fmt.Sprintf("Escalation from %s", session.Title),
+		fmt.Sprintf("Status: %s", session.Status),
+	}
+	if session.Notes != "" {
+		lines = append(lines, fmt.Sprintf("Notes: %s", session.Notes))
+	}
+	context := strings.Join(tailLines(m.output, 3), "\n")
+	if strings.TrimSpace(context) != "" {
+		lines = append(lines, "Current issue context:")
+		lines = append(lines, context)
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (m *Model) toggleArchivedSelection() error {

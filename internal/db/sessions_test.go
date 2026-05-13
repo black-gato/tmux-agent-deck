@@ -272,3 +272,31 @@ func TestUpdateSessionTags(t *testing.T) {
 		t.Fatalf("tags: got %q want %q", s.Tags, "backend api")
 	}
 }
+
+func TestGetGroupConductorSession(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	now := time.Now().Unix()
+	if err := dbpkg.CreateGroup(conn, dbpkg.Group{Path: "work", Name: "work", ConductorSessionID: "s1"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := dbpkg.CreateSession(conn, dbpkg.Session{
+		ID: "s1", Title: "lead", GroupPath: "work", TmuxSession: "ad-s1",
+		ProjectPath: "/p", Tool: "claude", Status: "running", CreatedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := dbpkg.CreateSession(conn, dbpkg.Session{
+		ID: "s2", Title: "worker", GroupPath: "work", TmuxSession: "ad-s2",
+		ProjectPath: "/p", Tool: "claude", Status: "waiting", CreatedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	s, err := dbpkg.GetGroupConductorSession(conn, "work")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.ID != "s1" {
+		t.Fatalf("conductor id: got %q want %q", s.ID, "s1")
+	}
+}

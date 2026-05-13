@@ -978,6 +978,72 @@ func TestDetailPanelShowsConductorState(t *testing.T) {
 	}
 }
 
+func TestCEscalatesWaitingSessionToConductor(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	fake := testutil.NewFakeTmuxClient()
+	fake.Sessions["ad-worker"] = "Investigating flaky test\nNeed decision on retry policy\n> "
+	if err := db.CreateGroup(conn, db.Group{Path: "work", Name: "work", Expanded: true, ConductorSessionID: "lead"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.CreateSession(conn, db.Session{
+		ID: "lead", Title: "conductor", GroupPath: "work", TmuxSession: "ad-lead",
+		ProjectPath: "/p", Tool: "claude", Status: "running", CreatedAt: 1001,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.CreateSession(conn, db.Session{
+		ID: "worker", Title: "worker", GroupPath: "work", TmuxSession: "ad-worker",
+		ProjectPath: "/p", Tool: "claude", Status: "waiting", CreatedAt: 1000, Notes: "blocked on retry choice",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	m := ui.NewModel(conn, fake, nil)
+	m.Reload()
+	moveCursorToSession(t, m, "worker")
+	m.Reload()
+
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'C'}})
+
+	if len(fake.SentKeys) != 1 {
+		t.Fatalf("expected 1 SendKeys call, got %d", len(fake.SentKeys))
+	}
+	call := fake.SentKeys[0]
+	if call.Session != "ad-lead" {
+		t.Fatalf("session: got %q want ad-lead", call.Session)
+	}
+	if !strings.Contains(call.Keys, "Escalation from worker") {
+		t.Fatalf("message missing title: %q", call.Keys)
+	}
+	if !strings.Contains(call.Keys, "blocked on retry choice") {
+		t.Fatalf("message missing notes: %q", call.Keys)
+	}
+	if !strings.Contains(call.Keys, "Need decision on retry policy") {
+		t.Fatalf("message missing output context: %q", call.Keys)
+	}
+}
+
+func TestCErrorsWhenConductorIsMissing(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	if err := db.CreateGroup(conn, db.Group{Path: "work", Name: "work", Expanded: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.CreateSession(conn, db.Session{
+		ID: "worker", Title: "worker", GroupPath: "work",
+		ProjectPath: "/p", Tool: "claude", Status: "waiting", CreatedAt: 1000,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	m := ui.NewModel(conn, testutil.NewFakeTmuxClient(), nil)
+	m.Reload()
+	moveCursorToSession(t, m, "worker")
+
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'C'}})
+
+	if !strings.Contains(m.View(), "error: resolve conductor") {
+		t.Fatalf("expected error view, got %q", m.View())
+	}
+}
+
 func moveCursorToSession(t *testing.T, m *ui.Model, title string) {
 	t.Helper()
 	for idx, item := range m.Items() {

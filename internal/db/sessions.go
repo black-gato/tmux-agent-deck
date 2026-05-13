@@ -62,6 +62,24 @@ func GetSessionByTitle(conn *sql.DB, title string) (Session, error) {
 	return s, nil
 }
 
+func GetGroupConductorSession(conn *sql.DB, groupPath string) (Session, error) {
+	var s Session
+	var archived int
+	err := conn.QueryRow(
+		`SELECT s.id, s.title, s.group_path, s.tmux_session, s.project_path, s.tool, s.status, s.created_at, s.last_active, s.notes, s.archived, s.tags
+		 FROM sessions s
+		 JOIN groups g ON g.path = s.group_path
+		 WHERE g.path = ? AND g.conductor_session_id = s.id
+		 LIMIT 1`,
+		groupPath,
+	).Scan(&s.ID, &s.Title, &s.GroupPath, &s.TmuxSession, &s.ProjectPath, &s.Tool, &s.Status, &s.CreatedAt, &s.LastActive, &s.Notes, &archived, &s.Tags)
+	if err != nil {
+		return Session{}, fmt.Errorf("get group conductor %q: %w", groupPath, err)
+	}
+	s.Archived = archived == 1
+	return s, nil
+}
+
 func ListSessions(conn *sql.DB) ([]Session, error) {
 	rows, err := conn.Query(
 		`SELECT id, title, group_path, tmux_session, project_path, tool, status, created_at, last_active, notes, archived, tags
