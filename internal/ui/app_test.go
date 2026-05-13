@@ -522,6 +522,84 @@ func TestSendPaneCtrlCharSent(t *testing.T) {
 	}
 }
 
+func TestSpaceOnSessionTogglesSelection(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	db.CreateSession(conn, db.Session{
+		ID: "s1", Title: "my-app", GroupPath: "my-sessions",
+		ProjectPath: "/p", Tool: "claude", Status: "running", CreatedAt: 1000,
+	})
+	m := ui.NewModel(conn, nil, nil)
+	m.Reload()
+
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	m.Update(tea.KeyMsg{Type: tea.KeySpace})
+	if m.SelectedCount() != 1 {
+		t.Fatalf("selected count: got %d want 1", m.SelectedCount())
+	}
+	if !m.Items()[1].Selected {
+		t.Fatal("selected session should be marked on the list item")
+	}
+
+	m.Update(tea.KeyMsg{Type: tea.KeySpace})
+	if m.SelectedCount() != 0 {
+		t.Fatalf("selected count: got %d want 0", m.SelectedCount())
+	}
+	if m.Items()[1].Selected {
+		t.Fatal("selected session should unmark after second toggle")
+	}
+}
+
+func TestSpaceOnGroupKeepsSelectionEmpty(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	m := ui.NewModel(conn, nil, nil)
+	m.Reload()
+
+	m.Update(tea.KeyMsg{Type: tea.KeySpace})
+	if m.SelectedCount() != 0 {
+		t.Fatalf("selected count: got %d want 0", m.SelectedCount())
+	}
+}
+
+func TestReloadPrunesSelectionForDeletedSession(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	db.CreateSession(conn, db.Session{
+		ID: "s1", Title: "my-app", GroupPath: "my-sessions",
+		ProjectPath: "/p", Tool: "claude", Status: "running", CreatedAt: 1000,
+	})
+	m := ui.NewModel(conn, nil, nil)
+	m.Reload()
+
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	m.Update(tea.KeyMsg{Type: tea.KeySpace})
+	if err := db.DeleteSession(conn, "s1"); err != nil {
+		t.Fatalf("delete session: %v", err)
+	}
+	if err := m.Reload(); err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	if m.SelectedCount() != 0 {
+		t.Fatalf("selected count after reload: got %d want 0", m.SelectedCount())
+	}
+}
+
+func TestViewShowsSelectedCountInFooter(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	db.CreateSession(conn, db.Session{
+		ID: "s1", Title: "my-app", GroupPath: "my-sessions",
+		ProjectPath: "/p", Tool: "claude", Status: "running", CreatedAt: 1000,
+	})
+	m := ui.NewModel(conn, nil, nil)
+	m.Reload()
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 20})
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	m.Update(tea.KeyMsg{Type: tea.KeySpace})
+
+	view := m.View()
+	if !strings.Contains(view, "[1 selected]") {
+		t.Fatalf("footer missing selected count: %q", view)
+	}
+}
+
 func TestReloadAnnotatesWaitingSessionsWithElapsedTime(t *testing.T) {
 	conn := testutil.OpenTestDB(t)
 	fake := testutil.NewFakeTmuxClient()

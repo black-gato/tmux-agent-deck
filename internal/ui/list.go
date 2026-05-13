@@ -14,6 +14,7 @@ type ListItem struct {
 	Session   *db.Session
 	Depth     int
 	WaitLabel string
+	Selected  bool
 }
 
 var statusSymbol = map[string]string{
@@ -121,7 +122,11 @@ func RenderList(items []ListItem, cursor, width, height int) string {
 			if sym == "" {
 				sym = "—"
 			}
-			prefixLen := len([]rune(indent)) + 1 + 2 // sym(1) + spaces(2)
+			mark := " "
+			if item.Selected {
+				mark = "*"
+			}
+			prefixLen := len([]rune(indent)) + 1 + 1 + 2 // mark + sym(1) + spaces(2)
 			if item.WaitLabel != "" {
 				prefixLen += len([]rune(item.WaitLabel)) + 1
 			}
@@ -130,9 +135,9 @@ func RenderList(items []ListItem, cursor, width, height int) string {
 				titleMax = 1
 			}
 			title := truncate(item.Session.Title, titleMax)
-			raw := fmt.Sprintf("%s%s  %s", indent, sym, title)
+			raw := fmt.Sprintf("%s%s%s  %s", indent, mark, sym, title)
 			if item.WaitLabel != "" {
-				raw = fmt.Sprintf("%s%s %s %s", indent, sym, item.WaitLabel, title)
+				raw = fmt.Sprintf("%s%s%s %s %s", indent, mark, sym, item.WaitLabel, title)
 			}
 			if selected {
 				line = selectedStyle.Render(raw)

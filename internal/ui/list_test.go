@@ -122,6 +122,18 @@ func TestRenderListShowsWaitingElapsedLabel(t *testing.T) {
 	}
 }
 
+func TestRenderListShowsSelectionMark(t *testing.T) {
+	groups := []db.Group{{Path: "g", Name: "g", Expanded: true}}
+	sessions := []db.Session{{ID: "s1", Title: "my-app", GroupPath: "g", Status: "running"}}
+	items := ui.BuildTree(groups, sessions)
+	items[1].Selected = true
+
+	output := ui.RenderList(items, 1, 80, 24)
+	if !strings.Contains(output, "*●  my-app") {
+		t.Errorf("render missing selection mark, got: %q", output)
+	}
+}
+
 func stripANSI(s string) string {
 	var result []rune
 	runes := []rune(s)

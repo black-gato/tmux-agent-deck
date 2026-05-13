@@ -35,10 +35,16 @@ type Model struct {
 	activePaneIdx  int
 	waitingSince   map[string]time.Time
 	overdueWaiting int
+	selected       map[string]bool
 }
 
 func NewModel(conn *sql.DB, tc tmux.ClientIface, poller *state.Poller) *Model {
-	return &Model{conn: conn, tmuxC: tc, poller: poller}
+	return &Model{
+		conn:     conn,
+		tmuxC:    tc,
+		poller:   poller,
+		selected: make(map[string]bool),
+	}
 }
 
 func (m *Model) Reload() error {
@@ -57,6 +63,12 @@ func (m *Model) Reload() error {
 	m.groups = groups
 	m.sessions = sessions
 	m.items = BuildTree(groups, sessions)
+	m.pruneSelection()
+	for i := range m.items {
+		if m.items[i].Kind == "session" && m.selected[m.items[i].Session.ID] {
+			m.items[i].Selected = true
+		}
+	}
 	m.waitingSince = nil
 	m.overdueWaiting = 0
 	if m.poller != nil {
@@ -103,6 +115,7 @@ func (m *Model) Output() string      { return m.output }
 func (m *Model) ViewFull() bool      { return m.viewFull }
 func (m *Model) ActivePaneIdx() int  { return m.activePaneIdx }
 func (m *Model) OverdueWaiting() int { return m.overdueWaiting }
+func (m *Model) SelectedCount() int  { return len(m.selected) }
 
 func (m *Model) Init() tea.Cmd {
 	if err := m.Reload(); err != nil {
@@ -147,6 +160,14 @@ func (m *Model) updateNavigation(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			g := m.items[m.cursor].Group
 			db.SetGroupExpanded(m.conn, g.Path, !g.Expanded)
 			m.Reload()
+		} else if m.cursor < len(m.items) && m.items[m.cursor].Kind == "session" {
+			id := m.items[m.cursor].Session.ID
+			if m.selected[id] {
+				delete(m.selected, id)
+			} else {
+				m.selected[id] = true
+			}
+			m.items[m.cursor].Selected = m.selected[id]
 		}
 	case "attach":
 		if m.cursor < len(m.items) {
@@ -244,7 +265,7 @@ func (m *Model) View() string {
 	}
 
 	header := m.renderAppHeader()
-	footer := renderFooter()
+	footer := m.renderFooter()
 
 	if m.viewFull {
 		sep := strings.Repeat("─", m.width)
@@ -301,8 +322,12 @@ func (m *Model) renderAppHeader() string {
 	return header
 }
 
-func renderFooter() string {
-	return " Enter Attach  x Send  f Fork  b Broadcast  v Output  e Notes  n New  d Delete  q Quit"
+func (m *Model) renderFooter() string {
+	footer := " Enter Attach  x Send  f Fork  b Broadcast  v Output  e Notes  n New  d Delete  q Quit"
+	if len(m.selected) > 0 {
+		return fmt.Sprintf("[%d selected] %s", len(m.selected), footer)
+	}
+	return footer
 }
 
 func tick() tea.Cmd {
@@ -441,6 +466,21 @@ func padRight(s string, width int) string {
 		return s
 	}
 	return s + strings.Repeat(" ", width-visual)
+}
+
+func (m *Model) pruneSelection() {
+	if len(m.selected) == 0 {
+		return
+	}
+	valid := make(map[string]bool, len(m.sessions))
+	for _, session := range m.sessions {
+		valid[session.ID] = true
+	}
+	for id := range m.selected {
+		if !valid[id] {
+			delete(m.selected, id)
+		}
+	}
 }
 
 // ensureStarted returns the tmux session name for s, spawning one if needed.
