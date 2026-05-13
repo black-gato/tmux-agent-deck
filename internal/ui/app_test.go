@@ -719,6 +719,90 @@ func TestSendPaneSendsToSelectedRunningSessions(t *testing.T) {
 	}
 }
 
+func TestArchiveHidesSessionFromDefaultList(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	fake := testutil.NewFakeTmuxClient()
+	db.CreateSession(conn, db.Session{
+		ID: "s1", Title: "my-app", GroupPath: "my-sessions", TmuxSession: "ad-s1",
+		ProjectPath: "/p", Tool: "claude", Status: "running", CreatedAt: 1000,
+	})
+	m := ui.NewModel(conn, fake, nil)
+	m.Reload()
+
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+
+	s, err := db.GetSession(conn, "s1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !s.Archived {
+		t.Fatal("session should be archived")
+	}
+	if s.Status != "stopped" {
+		t.Fatalf("status: got %q want stopped", s.Status)
+	}
+	if len(fake.KillCalls) != 1 || fake.KillCalls[0] != "ad-s1" {
+		t.Fatalf("kill calls: got %#v", fake.KillCalls)
+	}
+	for _, item := range m.Items() {
+		if item.Kind == "session" && item.Session.Title == "my-app" {
+			t.Fatalf("archived session should be hidden from default items: %#v", m.Items())
+		}
+	}
+}
+
+func TestToggleArchivedShowsArchivedSessions(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	db.CreateSession(conn, db.Session{
+		ID: "s1", Title: "my-app", GroupPath: "archived",
+		ProjectPath: "/p", Tool: "claude", Status: "stopped", CreatedAt: 1000, Archived: true,
+	})
+	m := ui.NewModel(conn, nil, nil)
+	m.Reload()
+
+	for _, item := range m.Items() {
+		if item.Kind == "session" && item.Session.Title == "my-app" {
+			t.Fatal("archived session should start hidden")
+		}
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'A'}})
+	found := false
+	for _, item := range m.Items() {
+		if item.Kind == "session" && item.Session.Title == "my-app" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("archived session should appear after A: %#v", m.Items())
+	}
+}
+
+func TestArchiveRestoresSessionFromArchivedView(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	db.CreateSession(conn, db.Session{
+		ID: "s1", Title: "my-app", GroupPath: "archived",
+		ProjectPath: "/p", Tool: "claude", Status: "stopped", CreatedAt: 1000, Archived: true,
+	})
+	m := ui.NewModel(conn, nil, nil)
+	m.Reload()
+
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'A'}})
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+
+	s, err := db.GetSession(conn, "s1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Archived {
+		t.Fatal("session should be restored")
+	}
+	if s.GroupPath != "my-sessions" {
+		t.Fatalf("group_path: got %q want my-sessions", s.GroupPath)
+	}
+}
+
 func TestReloadAnnotatesWaitingSessionsWithElapsedTime(t *testing.T) {
 	conn := testutil.OpenTestDB(t)
 	fake := testutil.NewFakeTmuxClient()

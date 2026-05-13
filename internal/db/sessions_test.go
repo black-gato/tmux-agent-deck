@@ -204,3 +204,51 @@ func TestSessionNotesDefaultsToEmpty(t *testing.T) {
 		t.Errorf("notes should default to empty, got %q", s.Notes)
 	}
 }
+
+func TestSessionArchiveDefaultsToFalse(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	now := time.Now().Unix()
+	dbpkg.CreateSession(conn, dbpkg.Session{
+		ID: "s1", Title: "a", GroupPath: "my-sessions",
+		ProjectPath: "/p", Tool: "claude", Status: "stopped", CreatedAt: now,
+	})
+	s, err := dbpkg.GetSession(conn, "s1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Archived {
+		t.Fatal("archived should default to false")
+	}
+	if s.Tags != "" {
+		t.Fatalf("tags should default to empty, got %q", s.Tags)
+	}
+}
+
+func TestSetSessionArchived(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	now := time.Now().Unix()
+	dbpkg.CreateSession(conn, dbpkg.Session{
+		ID: "s1", Title: "a", GroupPath: "my-sessions", TmuxSession: "ad-s1",
+		ProjectPath: "/p", Tool: "claude", Status: "running", CreatedAt: now,
+	})
+
+	if err := dbpkg.SetSessionArchived(conn, "s1", true); err != nil {
+		t.Fatal(err)
+	}
+	s, err := dbpkg.GetSession(conn, "s1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !s.Archived {
+		t.Fatal("archived should be true after archiving")
+	}
+	if s.GroupPath != "archived" {
+		t.Fatalf("group_path: got %q want archived", s.GroupPath)
+	}
+	if s.Status != "stopped" {
+		t.Fatalf("status: got %q want stopped", s.Status)
+	}
+	if s.TmuxSession != "" {
+		t.Fatalf("tmux_session: got %q want empty", s.TmuxSession)
+	}
+}

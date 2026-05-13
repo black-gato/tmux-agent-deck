@@ -18,6 +18,8 @@ var runeMap = map[rune]string{
 	'm': "move",
 	'r': "rename",
 	'd': "delete",
+	'a': "archive",
+	'A': "toggle-archived",
 	'q': "quit",
 	'v': "toggle-full",
 	'e': "edit-notes",

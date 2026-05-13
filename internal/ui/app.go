@@ -36,6 +36,7 @@ type Model struct {
 	waitingSince   map[string]time.Time
 	overdueWaiting int
 	selected       map[string]bool
+	showArchived   bool
 }
 
 func NewModel(conn *sql.DB, tc tmux.ClientIface, poller *state.Poller) *Model {
@@ -62,7 +63,7 @@ func (m *Model) Reload() error {
 	}
 	m.groups = groups
 	m.sessions = sessions
-	m.items = BuildTree(groups, sessions)
+	m.items = BuildTree(m.visibleGroups(groups), m.visibleSessions(sessions))
 	m.pruneSelection()
 	for i := range m.items {
 		if m.items[i].Kind == "session" && m.selected[m.items[i].Session.ID] {
@@ -252,6 +253,19 @@ func (m *Model) updateNavigation(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.poller.Stop()
 		}
 		return m, tea.Quit
+	case "archive":
+		if err := m.toggleArchivedSelection(); err != nil {
+			m.err = err
+			break
+		}
+		if err := m.Reload(); err != nil {
+			m.err = err
+		}
+	case "toggle-archived":
+		m.showArchived = !m.showArchived
+		if err := m.Reload(); err != nil {
+			m.err = err
+		}
 	}
 	return m, nil
 }
@@ -334,6 +348,7 @@ func (m *Model) renderAppHeader() string {
 
 func (m *Model) renderFooter() string {
 	footer := " Enter Attach  x Send  f Fork  b Broadcast  v Output  e Notes  n New  d Delete  q Quit"
+	footer += "  a Archive  A Archived"
 	if len(m.selected) > 0 {
 		return fmt.Sprintf("[%d selected] %s", len(m.selected), footer)
 	}
@@ -539,6 +554,62 @@ func (m *Model) deleteSession(session *db.Session) error {
 		}
 	}
 	return db.DeleteSession(m.conn, session.ID)
+}
+
+func (m *Model) visibleGroups(groups []db.Group) []db.Group {
+	if m.showArchived {
+		return groups
+	}
+	filtered := make([]db.Group, 0, len(groups))
+	for _, group := range groups {
+		if group.Path == "archived" {
+			continue
+		}
+		filtered = append(filtered, group)
+	}
+	return filtered
+}
+
+func (m *Model) visibleSessions(sessions []db.Session) []db.Session {
+	if m.showArchived {
+		return sessions
+	}
+	filtered := make([]db.Session, 0, len(sessions))
+	for _, session := range sessions {
+		if session.Archived {
+			continue
+		}
+		filtered = append(filtered, session)
+	}
+	return filtered
+}
+
+func (m *Model) toggleArchivedSelection() error {
+	if len(m.selected) > 0 {
+		for _, item := range m.items {
+			if item.Kind != "session" || !m.selected[item.Session.ID] {
+				continue
+			}
+			if err := m.toggleArchivedSession(item.Session); err != nil {
+				return err
+			}
+		}
+		m.clearSelection()
+		return nil
+	}
+	if m.cursor >= len(m.items) || m.items[m.cursor].Kind != "session" {
+		return nil
+	}
+	return m.toggleArchivedSession(m.items[m.cursor].Session)
+}
+
+func (m *Model) toggleArchivedSession(session *db.Session) error {
+	if session.TmuxSession != "" && !session.Archived && m.tmuxC != nil {
+		if err := m.tmuxC.KillSession(session.TmuxSession); err != nil {
+			return err
+		}
+	}
+	return db.SetSessionArchived(m.conn, session.ID, !session.Archived)
 }
 
 // ensureStarted returns the tmux session name for s, spawning one if needed.

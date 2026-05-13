@@ -54,10 +54,13 @@ func migrate(conn *sql.DB) error {
 			status       TEXT NOT NULL DEFAULT 'stopped',
 			created_at   INTEGER NOT NULL,
 			last_active  INTEGER NOT NULL DEFAULT 0,
-			notes        TEXT NOT NULL DEFAULT ''
+			notes        TEXT NOT NULL DEFAULT '',
+			archived     INTEGER NOT NULL DEFAULT 0,
+			tags         TEXT NOT NULL DEFAULT ''
 		);
-		INSERT OR IGNORE INTO metadata (key, value) VALUES ('schema_version', '2');
+		INSERT OR IGNORE INTO metadata (key, value) VALUES ('schema_version', '3');
 		INSERT OR IGNORE INTO groups (path, name) VALUES ('my-sessions', 'my-sessions');
+		INSERT OR IGNORE INTO groups (path, name) VALUES ('archived', 'archived');
 	`)
 	if err != nil {
 		return err
@@ -71,6 +74,21 @@ func migrate(conn *sql.DB) error {
 			return err
 		}
 		if _, err := conn.Exec(`UPDATE metadata SET value = '2' WHERE key = 'schema_version'`); err != nil {
+			return err
+		}
+		version = "2"
+	}
+	if version == "2" {
+		if _, err := conn.Exec(`ALTER TABLE sessions ADD COLUMN archived INTEGER NOT NULL DEFAULT 0`); err != nil {
+			return err
+		}
+		if _, err := conn.Exec(`ALTER TABLE sessions ADD COLUMN tags TEXT NOT NULL DEFAULT ''`); err != nil {
+			return err
+		}
+		if _, err := conn.Exec(`INSERT OR IGNORE INTO groups (path, name) VALUES ('archived', 'archived')`); err != nil {
+			return err
+		}
+		if _, err := conn.Exec(`UPDATE metadata SET value = '3' WHERE key = 'schema_version'`); err != nil {
 			return err
 		}
 	}
