@@ -409,6 +409,34 @@ func TestViewRendersSplitLayout(t *testing.T) {
 	}
 }
 
+func TestViewShowsEmptyStateOnboardingWhenNoSessionsExist(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	m := ui.NewModel(conn, nil, nil)
+	m.Reload()
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+
+	view := m.View()
+	if !strings.Contains(view, "Press n to create your first session") {
+		t.Fatalf("expected onboarding hint, got:\n%s", view)
+	}
+}
+
+func TestViewDoesNotShowEmptyStateOnboardingWhenSessionExists(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	db.CreateSession(conn, db.Session{
+		ID: "s1", Title: "my-feature", GroupPath: "my-sessions",
+		ProjectPath: "/p", Tool: "claude", Status: "stopped", CreatedAt: 1000,
+	})
+	m := ui.NewModel(conn, nil, nil)
+	m.Reload()
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+
+	view := m.View()
+	if strings.Contains(view, "Press n to create your first session") {
+		t.Fatalf("did not expect onboarding hint once sessions exist, got:\n%s", view)
+	}
+}
+
 func TestViewFullScreenHidesLeftColumn(t *testing.T) {
 	conn := testutil.OpenTestDB(t)
 	fake := testutil.NewFakeTmuxClient()

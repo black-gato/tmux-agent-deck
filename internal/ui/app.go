@@ -452,6 +452,9 @@ func tick() tea.Cmd {
 }
 
 func (m *Model) RenderDetailPanel(w, h int) string {
+	if len(m.sessions) == 0 {
+		return m.renderEmptyState(w, h)
+	}
 	if m.cursor >= len(m.items) || m.items[m.cursor].Kind != "session" {
 		return ""
 	}
@@ -522,6 +525,28 @@ func (m *Model) RenderDetailPanel(w, h int) string {
 		lines = append(lines, " e edit")
 	}
 
+	return strings.Join(lines, "\n")
+}
+
+func (m *Model) renderEmptyState(w, h int) string {
+	lines := []string{
+		"WELCOME",
+		"",
+		"Press n to create your first session",
+		"Then attach to launch your agent in tmux.",
+	}
+	if h > 0 && len(lines) > h {
+		lines = lines[:h]
+	}
+	for len(lines) < h {
+		lines = append(lines, "")
+	}
+	if w <= 0 {
+		return strings.Join(lines, "\n")
+	}
+	for i := range lines {
+		lines[i] = truncate(lines[i], w)
+	}
 	return strings.Join(lines, "\n")
 }
 
