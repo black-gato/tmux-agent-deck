@@ -1,11 +1,14 @@
 package cmd
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 	"time"
 
 	"github.com/black-gato/tmux-agent-deck/internal/db"
@@ -22,36 +25,44 @@ var notifyEnabled bool
 var notifyStyle string
 var notifyQuiet string
 var pollInterval time.Duration
+var headlessMode bool
+var rootTmuxClient tmux.ClientIface
 
 var rootCmd = &cobra.Command{
 	Use:   "tmux-agent-deck",
 	Short: "Manage AI coding agent sessions in tmux",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return launchTUI(rootDB)
+		return runRoot(cmd.Context(), rootDB)
 	},
 }
 
 func Execute() error {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
 	conn, err := openDB()
 	if err != nil {
 		return err
 	}
 	defer conn.Close()
-	rootDB = conn
-	return rootCmd.Execute()
+	return executeWith(ctx, conn, nil, io.Discard, nil)
 }
 
 // RunWith is used by tests to inject args and capture output without os.Exit.
 func RunWith(args []string, out io.Writer) error {
+	return RunWithContextAndClient(context.Background(), args, out, nil)
+}
+
+func RunWithContext(ctx context.Context, args []string, out io.Writer) error {
+	return RunWithContextAndClient(ctx, args, out, nil)
+}
+
+func RunWithContextAndClient(ctx context.Context, args []string, out io.Writer, tc tmux.ClientIface) error {
 	conn, err := openDB()
 	if err != nil {
 		return err
 	}
 	defer conn.Close()
-	rootDB = conn
-	rootCmd.SetOut(out)
-	rootCmd.SetArgs(args)
-	return rootCmd.Execute()
+	return executeWith(ctx, conn, args, out, tc)
 }
 
 func openDB() (*sql.DB, error) {
@@ -71,8 +82,42 @@ func openDB() (*sql.DB, error) {
 	return db.Open(path)
 }
 
-func launchTUI(conn *sql.DB) error {
-	tc := tmux.NewClient()
+func executeWith(ctx context.Context, conn *sql.DB, args []string, out io.Writer, tc tmux.ClientIface) error {
+	resetRootOptions()
+	rootDB = conn
+	rootTmuxClient = tc
+	rootCmd.SetOut(out)
+	rootCmd.SetArgs(args)
+	rootCmd.SetContext(ctx)
+	err := rootCmd.Execute()
+	rootTmuxClient = nil
+	rootDB = nil
+	return err
+}
+
+func resetRootOptions() {
+	notifyEnabled = false
+	notifyStyle = "waiting"
+	notifyQuiet = ""
+	pollInterval = time.Second
+	headlessMode = false
+}
+
+func runRoot(ctx context.Context, conn *sql.DB) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	tc := rootTmuxClient
+	if tc == nil {
+		tc = tmux.NewClient()
+	}
+	if headlessMode {
+		return launchHeadless(ctx, conn, tc)
+	}
+	return launchTUI(conn, tc)
+}
+
+func launchTUI(conn *sql.DB, tc tmux.ClientIface) error {
 	for {
 		poller := state.NewWithNotifierInterval(conn, tc, notify.New(notify.Config{
 			Enabled: notifyEnabled,
@@ -101,9 +146,22 @@ func launchTUI(conn *sql.DB) error {
 	}
 }
 
+func launchHeadless(ctx context.Context, conn *sql.DB, tc tmux.ClientIface) error {
+	poller := state.NewWithNotifierInterval(conn, tc, notify.New(notify.Config{
+		Enabled: notifyEnabled,
+		Style:   notify.Style(notifyStyle),
+		Quiet:   notifyQuiet,
+	}), pollInterval)
+	poller.Start()
+	defer poller.Stop()
+	<-ctx.Done()
+	return nil
+}
+
 func init() {
 	rootCmd.PersistentFlags().BoolVar(&notifyEnabled, "notify", false, "Enable desktop notifications")
 	rootCmd.PersistentFlags().StringVar(&notifyStyle, "notify-style", "waiting", "Notification style: waiting, conductor, digest")
 	rootCmd.PersistentFlags().StringVar(&notifyQuiet, "notify-quiet", "", "Quiet hours / cooldown policy")
 	rootCmd.PersistentFlags().DurationVar(&pollInterval, "poll", time.Second, "Poll interval")
+	rootCmd.PersistentFlags().BoolVar(&headlessMode, "headless", false, "Run the poller without launching the TUI")
 }
