@@ -54,7 +54,7 @@ func TestListAcceptsNotifyFlags(t *testing.T) {
 	t.Setenv("AGENT_DECK_DB", dbPath)
 
 	var out bytes.Buffer
-	if err := cmd.RunWith([]string{"--notify", "--notify-style", "digest", "list"}, &out); err != nil {
+	if err := cmd.RunWith([]string{"--notify", "--notify-style", "digest", "--notify-quiet", "cooldown=10m,hours=22:00-07:00", "list"}, &out); err != nil {
 		t.Fatalf("list with notify flags: %v", err)
 	}
 }

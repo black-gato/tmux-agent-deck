@@ -305,3 +305,82 @@ func TestPollerDigestSummarizesAllWaitingChildren(t *testing.T) {
 		t.Fatalf("digest should exclude conductor: %q", body)
 	}
 }
+
+func TestPollerWaitingCooldownSuppressesRepeatAlerts(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	now := time.Date(2026, 5, 12, 9, 0, 0, 0, time.Local)
+	if err := db.CreateSession(conn, db.Session{
+		ID: "s1", Title: "worker", GroupPath: "work", TmuxSession: "tmux-s1",
+		ProjectPath: "/p", Tool: "claude", Status: "running", CreatedAt: now.Unix(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	stub := &stubTmux{output: "Some output\n>", exists: true}
+	calls := 0
+	notifier := notify.NewWithClockRunner(
+		notify.Config{Enabled: true, Style: notify.StyleWaiting, Quiet: "cooldown=10m"},
+		func() time.Time { return now },
+		func(title, body string) error {
+			calls++
+			return nil
+		},
+	)
+	p := state.NewWithClock(conn, stub, notifier, func() time.Time { return now })
+
+	p.PollOnce()
+	now = now.Add(time.Minute)
+	stub.output = "Thinking hard..."
+	p.PollOnce()
+	now = now.Add(time.Minute)
+	stub.output = "Some output\n>"
+	p.PollOnce()
+
+	s, err := db.GetSession(conn, "s1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Status != "waiting" {
+		t.Fatalf("status: got %q want waiting", s.Status)
+	}
+	if calls != 1 {
+		t.Fatalf("calls: got %d want 1", calls)
+	}
+}
+
+func TestPollerDigestQuietHoursSuppressesDigestAlert(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	now := time.Date(2026, 5, 12, 22, 30, 0, 0, time.Local)
+	db.CreateGroup(conn, db.Group{Path: "work", Name: "work", ConductorSessionID: "lead"})
+	for _, session := range []db.Session{
+		{
+			ID: "lead", Title: "lead", GroupPath: "work", TmuxSession: "tmux-lead",
+			ProjectPath: "/p", Tool: "claude", Status: "running", CreatedAt: now.Unix() + 1,
+		},
+		{
+			ID: "worker", Title: "worker", GroupPath: "work", TmuxSession: "tmux-worker",
+			ProjectPath: "/p", Tool: "claude", Status: "running", CreatedAt: now.Unix(),
+		},
+	} {
+		if err := db.CreateSession(conn, session); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	calls := 0
+	stub := &stubTmux{output: "Some output\n>", exists: true}
+	notifier := notify.NewWithClockRunner(
+		notify.Config{Enabled: true, Style: notify.StyleDigest, Quiet: "hours=22:00-07:00"},
+		func() time.Time { return now },
+		func(title, body string) error {
+			calls++
+			return nil
+		},
+	)
+	p := state.NewWithClock(conn, stub, notifier, func() time.Time { return now })
+	p.PollOnce()
+
+	if calls != 0 {
+		t.Fatalf("calls: got %d want 0", calls)
+	}
+}
