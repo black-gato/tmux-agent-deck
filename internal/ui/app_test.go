@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/black-gato/tmux-agent-deck/internal/db"
+	"github.com/black-gato/tmux-agent-deck/internal/notify"
 	"github.com/black-gato/tmux-agent-deck/internal/state"
 	"github.com/black-gato/tmux-agent-deck/internal/testutil"
 	"github.com/black-gato/tmux-agent-deck/internal/tmux"
@@ -1073,7 +1074,7 @@ func TestReloadAnnotatesWaitingSessionsWithElapsedTime(t *testing.T) {
 		Status: "waiting", CreatedAt: base.Unix(),
 	})
 
-	poller := state.NewWithClock(conn, fake, func() time.Time { return current })
+	poller := state.NewWithClock(conn, fake, notify.New(notify.Config{}), func() time.Time { return current })
 	poller.PollOnce()
 	current = current.Add(65 * time.Second)
 
@@ -1105,7 +1106,7 @@ func TestViewShowsErrorCountAndOverdueWaitingBadge(t *testing.T) {
 		Status: "error", CreatedAt: base.Unix(),
 	})
 
-	poller := state.NewWithClock(conn, fake, func() time.Time { return current })
+	poller := state.NewWithClock(conn, fake, notify.New(notify.Config{}), func() time.Time { return current })
 	poller.PollOnce()
 	current = current.Add(31 * time.Second)
 
