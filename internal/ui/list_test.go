@@ -134,6 +134,18 @@ func TestRenderListShowsSelectionMark(t *testing.T) {
 	}
 }
 
+func TestRenderListShowsConductorMark(t *testing.T) {
+	groups := []db.Group{{Path: "g", Name: "g", Expanded: true}}
+	sessions := []db.Session{{ID: "s1", Title: "my-app", GroupPath: "g", Status: "running"}}
+	items := ui.BuildTree(groups, sessions)
+	items[1].IsConductor = true
+
+	output := ui.RenderList(items, 1, 80, 24)
+	if !strings.Contains(output, "C●  my-app") {
+		t.Errorf("render missing conductor mark, got: %q", output)
+	}
+}
+
 func stripANSI(s string) string {
 	var result []rune
 	runes := []rune(s)

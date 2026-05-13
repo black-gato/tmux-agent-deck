@@ -9,12 +9,13 @@ import (
 )
 
 type ListItem struct {
-	Kind      string // "group" or "session"
-	Group     *db.Group
-	Session   *db.Session
-	Depth     int
-	WaitLabel string
-	Selected  bool
+	Kind        string // "group" or "session"
+	Group       *db.Group
+	Session     *db.Session
+	Depth       int
+	WaitLabel   string
+	Selected    bool
+	IsConductor bool
 }
 
 var statusSymbol = map[string]string{
@@ -125,6 +126,9 @@ func RenderList(items []ListItem, cursor, width, height int) string {
 			mark := " "
 			if item.Selected {
 				mark = "*"
+			}
+			if item.IsConductor {
+				mark = "C"
 			}
 			prefixLen := len([]rune(indent)) + 1 + 1 + 2 // mark + sym(1) + spaces(2)
 			if item.WaitLabel != "" {

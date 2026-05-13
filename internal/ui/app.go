@@ -70,6 +70,9 @@ func (m *Model) Reload() error {
 		if m.items[i].Kind == "session" && m.selected[m.items[i].Session.ID] {
 			m.items[i].Selected = true
 		}
+		if m.items[i].Kind == "session" && m.isConductorSession(m.items[i].Session) {
+			m.items[i].IsConductor = true
+		}
 	}
 	m.waitingSince = nil
 	m.overdueWaiting = 0
@@ -230,6 +233,17 @@ func (m *Model) updateNavigation(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.mode = "edit-notes"
 			m.dialog = dialogState{prompt: "", value: m.items[m.cursor].Session.Notes}
 		}
+	case "set-conductor":
+		if m.cursor < len(m.items) && m.items[m.cursor].Kind == "session" {
+			session := m.items[m.cursor].Session
+			if err := db.SetGroupConductor(m.conn, session.GroupPath, session.ID); err != nil {
+				m.err = err
+				break
+			}
+			if err := m.Reload(); err != nil {
+				m.err = err
+			}
+		}
 	case "edit-tags":
 		if m.cursor < len(m.items) && m.items[m.cursor].Kind == "session" {
 			m.mode = "edit-tags"
@@ -359,7 +373,7 @@ func (m *Model) renderAppHeader() string {
 
 func (m *Model) renderFooter() string {
 	footer := " Enter Attach  x Send  f Fork  b Broadcast  v Output  e Notes  n New  d Delete  q Quit"
-	footer += "  a Archive  A Archived  t Tags  / Search"
+	footer += "  a Archive  A Archived  c Conductor  t Tags  / Search"
 	if len(m.selected) > 0 {
 		return fmt.Sprintf("[%d selected] %s", len(m.selected), footer)
 	}
@@ -399,10 +413,11 @@ func (m *Model) RenderDetailPanel(w, h int) string {
 	}
 	lines = append(lines, fmt.Sprintf(" %s  %s", s.Title, statusText))
 	lines = append(lines, fmt.Sprintf(" group: %s", s.GroupPath))
+	lines = append(lines, fmt.Sprintf(" conductor: %t", m.isConductorSession(s)))
 	lines = append(lines, fmt.Sprintf(" tags: %s", s.Tags))
 	lines = append(lines, " "+renderPaneList(m.panes, m.activePaneIdx))
 
-	const sessionHeaderLines = 5
+	const sessionHeaderLines = 6
 	const notesLines = 5
 	outputH := h - sessionHeaderLines - notesLines - 1
 	if outputH < 0 {
@@ -594,6 +609,15 @@ func (m *Model) visibleSessions(sessions []db.Session) []db.Session {
 		filtered = append(filtered, session)
 	}
 	return filtered
+}
+
+func (m *Model) isConductorSession(session *db.Session) bool {
+	for _, group := range m.groups {
+		if group.Path == session.GroupPath {
+			return group.ConductorSessionID == session.ID
+		}
+	}
+	return false
 }
 
 func (m *Model) toggleArchivedSelection() error {

@@ -23,10 +23,12 @@ var runeMap = map[rune]string{
 	'q': "quit",
 	'v': "toggle-full",
 	'e': "edit-notes",
+	'c': "set-conductor",
 	't': "edit-tags",
 	'x': "send-pane",
 	'f': "fork-session",
 	'b': "broadcast",
+	'C': "escalate-conductor",
 	'/': "search",
 }
 

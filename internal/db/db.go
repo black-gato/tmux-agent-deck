@@ -41,6 +41,7 @@ func migrate(conn *sql.DB) error {
 			name         TEXT NOT NULL,
 			default_path TEXT NOT NULL DEFAULT '',
 			default_tool TEXT NOT NULL DEFAULT 'claude',
+			conductor_session_id TEXT NOT NULL DEFAULT '',
 			expanded     INTEGER NOT NULL DEFAULT 1,
 			sort_order   INTEGER NOT NULL DEFAULT 0
 		);
@@ -58,7 +59,7 @@ func migrate(conn *sql.DB) error {
 			archived     INTEGER NOT NULL DEFAULT 0,
 			tags         TEXT NOT NULL DEFAULT ''
 		);
-		INSERT OR IGNORE INTO metadata (key, value) VALUES ('schema_version', '3');
+		INSERT OR IGNORE INTO metadata (key, value) VALUES ('schema_version', '4');
 		INSERT OR IGNORE INTO groups (path, name) VALUES ('my-sessions', 'my-sessions');
 		INSERT OR IGNORE INTO groups (path, name) VALUES ('archived', 'archived');
 	`)
@@ -89,6 +90,15 @@ func migrate(conn *sql.DB) error {
 			return err
 		}
 		if _, err := conn.Exec(`UPDATE metadata SET value = '3' WHERE key = 'schema_version'`); err != nil {
+			return err
+		}
+		version = "3"
+	}
+	if version == "3" {
+		if _, err := conn.Exec(`ALTER TABLE groups ADD COLUMN conductor_session_id TEXT NOT NULL DEFAULT ''`); err != nil {
+			return err
+		}
+		if _, err := conn.Exec(`UPDATE metadata SET value = '4' WHERE key = 'schema_version'`); err != nil {
 			return err
 		}
 	}

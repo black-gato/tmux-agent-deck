@@ -33,6 +33,23 @@ func TestGroupCreateAndGet(t *testing.T) {
 	}
 }
 
+func TestSetGroupConductor(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	if err := dbpkg.CreateGroup(conn, dbpkg.Group{Path: "work", Name: "work"}); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if err := dbpkg.SetGroupConductor(conn, "work", "session-1"); err != nil {
+		t.Fatalf("set conductor: %v", err)
+	}
+	got, err := dbpkg.GetGroup(conn, "work")
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if got.ConductorSessionID != "session-1" {
+		t.Fatalf("conductor_session_id: got %q want %q", got.ConductorSessionID, "session-1")
+	}
+}
+
 func TestListGroups(t *testing.T) {
 	conn := testutil.OpenTestDB(t)
 	// my-sessions already created by migration

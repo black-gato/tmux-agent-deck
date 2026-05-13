@@ -908,6 +908,92 @@ func TestSearchFiltersSessionsByTitle(t *testing.T) {
 	}
 }
 
+func TestCOnSessionSetsGroupConductor(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	db.CreateGroup(conn, db.Group{Path: "work", Name: "work", Expanded: true})
+	db.CreateSession(conn, db.Session{
+		ID: "s1", Title: "first", GroupPath: "work",
+		ProjectPath: "/p", Tool: "claude", Status: "running", CreatedAt: 1001,
+	})
+	db.CreateSession(conn, db.Session{
+		ID: "s2", Title: "second", GroupPath: "work",
+		ProjectPath: "/p", Tool: "claude", Status: "running", CreatedAt: 1000,
+	})
+	m := ui.NewModel(conn, nil, nil)
+	m.Reload()
+
+	moveCursorToSession(t, m, "first")
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
+
+	group, err := db.GetGroup(conn, "work")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if group.ConductorSessionID != "s1" {
+		t.Fatalf("conductor_session_id: got %q want %q", group.ConductorSessionID, "s1")
+	}
+}
+
+func TestCReplacesPriorGroupConductor(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	db.CreateGroup(conn, db.Group{Path: "work", Name: "work", Expanded: true, ConductorSessionID: "s1"})
+	db.CreateSession(conn, db.Session{
+		ID: "s1", Title: "first", GroupPath: "work",
+		ProjectPath: "/p", Tool: "claude", Status: "running", CreatedAt: 1001,
+	})
+	db.CreateSession(conn, db.Session{
+		ID: "s2", Title: "second", GroupPath: "work",
+		ProjectPath: "/p", Tool: "claude", Status: "running", CreatedAt: 1000,
+	})
+	m := ui.NewModel(conn, nil, nil)
+	m.Reload()
+
+	moveCursorToSession(t, m, "second")
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
+
+	group, err := db.GetGroup(conn, "work")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if group.ConductorSessionID != "s2" {
+		t.Fatalf("conductor_session_id: got %q want %q", group.ConductorSessionID, "s2")
+	}
+}
+
+func TestDetailPanelShowsConductorState(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	db.CreateGroup(conn, db.Group{Path: "work", Name: "work", Expanded: true, ConductorSessionID: "s1"})
+	db.CreateSession(conn, db.Session{
+		ID: "s1", Title: "lead", GroupPath: "work",
+		ProjectPath: "/p", Tool: "claude", Status: "running", CreatedAt: 1000,
+	})
+	m := ui.NewModel(conn, nil, nil)
+	m.Reload()
+
+	moveCursorToSession(t, m, "lead")
+
+	panel := m.RenderDetailPanel(60, 20)
+	if !strings.Contains(panel, "conductor: true") {
+		t.Fatalf("detail panel missing conductor state: %q", panel)
+	}
+}
+
+func moveCursorToSession(t *testing.T, m *ui.Model, title string) {
+	t.Helper()
+	for idx, item := range m.Items() {
+		if item.Kind == "session" && item.Session.Title == title {
+			for m.Cursor() < idx {
+				m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+			}
+			for m.Cursor() > idx {
+				m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'k'}})
+			}
+			return
+		}
+	}
+	t.Fatalf("session %q not found in items: %#v", title, m.Items())
+}
+
 func TestReloadAnnotatesWaitingSessionsWithElapsedTime(t *testing.T) {
 	conn := testutil.OpenTestDB(t)
 	fake := testutil.NewFakeTmuxClient()
