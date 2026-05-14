@@ -392,3 +392,42 @@ func TestPollerDigestQuietHoursSuppressesDigestAlert(t *testing.T) {
 		t.Fatalf("calls: got %d want 0", calls)
 	}
 }
+
+func TestPollerStoresContextPct(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	db.CreateSession(conn, db.Session{
+		ID: "s1", Title: "test", GroupPath: "my-sessions",
+		TmuxSession: "tmux-s1", ProjectPath: "/p", Tool: "claude",
+		Status: "running", CreatedAt: time.Now().Unix(),
+	})
+
+	stub := &stubTmux{output: "Some output\n75% context used\n> ", exists: true}
+	p := state.New(conn, stub)
+	p.PollOnce()
+
+	snap := p.ContextPctSnapshot()
+	if snap["s1"] == nil || *snap["s1"] != 75 {
+		t.Fatalf("expected context pct 75 for s1, got %v", snap["s1"])
+	}
+}
+
+func TestPollerClearsContextPctWhenSessionStopped(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	db.CreateSession(conn, db.Session{
+		ID: "s1", Title: "test", GroupPath: "my-sessions",
+		TmuxSession: "tmux-s1", ProjectPath: "/p", Tool: "claude",
+		Status: "running", CreatedAt: time.Now().Unix(),
+	})
+
+	stub := &stubTmux{output: "75% context used\n> ", exists: true}
+	p := state.New(conn, stub)
+	p.PollOnce()
+
+	db.UpdateSessionStatus(conn, "s1", "stopped")
+	p.PollOnce()
+
+	snap := p.ContextPctSnapshot()
+	if snap["s1"] != nil {
+		t.Fatalf("expected nil context pct after session stopped, got %d", *snap["s1"])
+	}
+}

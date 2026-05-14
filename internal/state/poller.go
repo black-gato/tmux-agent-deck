@@ -28,6 +28,7 @@ type Poller struct {
 	mu           sync.RWMutex
 	lastChange   map[string]time.Time
 	waitingSince map[string]time.Time
+	contextPct   map[string]*int
 	done         chan struct{}
 }
 
@@ -65,6 +66,7 @@ func NewWithClockInterval(conn *sql.DB, tc TmuxReader, notifier waitingNotifier,
 		interval:     interval,
 		lastChange:   make(map[string]time.Time),
 		waitingSince: make(map[string]time.Time),
+		contextPct:   make(map[string]*int),
 		done:         make(chan struct{}),
 	}
 }
@@ -136,6 +138,8 @@ func (p *Poller) PollOnce() {
 			log.Printf("poller: capture pane %q: %v", s.TmuxSession, err)
 			continue
 		}
+
+		p.setContextPct(s.ID, tmux.ParseContextPct(out))
 
 		now := p.now()
 		lc := p.lastObservedChange(s.ID, now)
@@ -222,6 +226,29 @@ func (p *Poller) clearSessionState(id string) {
 	defer p.mu.Unlock()
 	delete(p.lastChange, id)
 	delete(p.waitingSince, id)
+	delete(p.contextPct, id)
+}
+
+func (p *Poller) setContextPct(id string, pct *int) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if pct == nil {
+		delete(p.contextPct, id)
+		return
+	}
+	v := *pct
+	p.contextPct[id] = &v
+}
+
+func (p *Poller) ContextPctSnapshot() map[string]*int {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	snap := make(map[string]*int, len(p.contextPct))
+	for id, pct := range p.contextPct {
+		v := *pct
+		snap[id] = &v
+	}
+	return snap
 }
 
 func (p *Poller) lastObservedChange(id string, now time.Time) time.Time {
