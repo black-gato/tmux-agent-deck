@@ -15,6 +15,12 @@ import (
 
 type tickMsg struct{}
 
+var (
+	headerWaitingStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("214")) // amber
+	headerErrorStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("196")) // red
+	headerOverdueStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("196"))
+)
+
 type Model struct {
 	conn           *sql.DB
 	tmuxC          tmux.ClientIface
@@ -395,9 +401,17 @@ func (m *Model) renderAppHeader() string {
 			errs++
 		}
 	}
-	header := fmt.Sprintf(" Agent Deck  ● %d running  ○ %d waiting  ◐ %d idle  ✕ %d error", running, waiting, idle, errs)
+	waitingStr := fmt.Sprintf("%d waiting", waiting)
+	errorStr := fmt.Sprintf("%d error", errs)
+	if waiting > 0 {
+		waitingStr = headerWaitingStyle.Render(waitingStr)
+	}
+	if errs > 0 {
+		errorStr = headerErrorStyle.Render(errorStr)
+	}
+	header := fmt.Sprintf(" Agent Deck  ● %d running  ○ %s  ◐ %d idle  ✕ %s", running, waitingStr, idle, errorStr)
 	if m.overdueWaiting > 0 {
-		header += fmt.Sprintf("  !%d", m.overdueWaiting)
+		header += "  " + headerOverdueStyle.Render(fmt.Sprintf("!%d", m.overdueWaiting))
 	}
 	return header
 }

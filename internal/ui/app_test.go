@@ -1721,6 +1721,39 @@ func TestCyclePaneResetsOnReload(t *testing.T) {
 	}
 }
 
+func TestHeaderColorsWaitingAmberWhenNonZero(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	db.CreateSession(conn, db.Session{
+		ID: "s1", Title: "app", GroupPath: "my-sessions",
+		ProjectPath: "/p", Tool: "claude", Status: "waiting", CreatedAt: 1000,
+	})
+	m := ui.NewModel(conn, nil, nil)
+	m.Reload()
+
+	view := m.View()
+	if !strings.Contains(view, "\x1b[") {
+		t.Skip("terminal does not support ANSI — skipping color test")
+	}
+	if !strings.Contains(view, "1 waiting") {
+		t.Fatalf("expected '1 waiting' in header, got:\n%s", view)
+	}
+}
+
+func TestHeaderColorsErrorRedWhenNonZero(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	db.CreateSession(conn, db.Session{
+		ID: "s1", Title: "app", GroupPath: "my-sessions",
+		ProjectPath: "/p", Tool: "claude", Status: "error", CreatedAt: 1000,
+	})
+	m := ui.NewModel(conn, nil, nil)
+	m.Reload()
+
+	view := m.View()
+	if !strings.Contains(view, "1 error") {
+		t.Fatalf("expected '1 error' in header, got:\n%s", view)
+	}
+}
+
 func TestDetailPanelShowsContextLine(t *testing.T) {
 	conn := testutil.OpenTestDB(t)
 	if err := db.CreateSession(conn, db.Session{
