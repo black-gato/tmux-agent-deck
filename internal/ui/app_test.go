@@ -1648,7 +1648,7 @@ func TestErrorViewShowsQuitHint(t *testing.T) {
 	}
 }
 
-func TestNewGroupDuplicatePathShowsFriendlyError(t *testing.T) {
+func TestNewGroupDuplicateNavigatesToExistingGroup(t *testing.T) {
 	conn := testutil.OpenTestDB(t)
 	if err := db.CreateGroup(conn, db.Group{Path: "work", Name: "work", Expanded: true}); err != nil {
 		t.Fatal(err)
@@ -1662,12 +1662,13 @@ func TestNewGroupDuplicatePathShowsFriendlyError(t *testing.T) {
 	}
 	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 
-	view := m.View()
-	if strings.Contains(view, "UNIQUE constraint") {
-		t.Fatalf("expected friendly error, got raw SQL: %q", view)
+	if strings.Contains(m.View(), "error:") {
+		t.Fatalf("expected no error on duplicate group, got: %q", m.View())
 	}
-	if !strings.Contains(view, "already exists") {
-		t.Fatalf("expected 'already exists' in error view, got: %q", view)
+	items := m.Items()
+	cursor := m.Cursor()
+	if cursor >= len(items) || items[cursor].Kind != "group" || items[cursor].Group.Path != "work" {
+		t.Fatalf("expected cursor on group 'work', cursor=%d items=%v", cursor, items)
 	}
 }
 
@@ -1717,5 +1718,55 @@ func TestCyclePaneResetsOnReload(t *testing.T) {
 	m.Reload()
 	if m.ActivePaneIdx() != 0 {
 		t.Errorf("expected reset to 0 after Reload, got %d", m.ActivePaneIdx())
+	}
+}
+
+func TestDetailPanelShowsContextLine(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	if err := db.CreateSession(conn, db.Session{
+		ID: "s1", Title: "app", GroupPath: "my-sessions",
+		TmuxSession: "tmux-s1", ProjectPath: "/p", Tool: "claude",
+		Status: "running", CreatedAt: time.Now().Unix(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	fake := testutil.NewFakeTmuxClient()
+	fake.Sessions["tmux-s1"] = "Some output\n75% context used\n> "
+
+	poller := state.New(conn, fake)
+	poller.PollOnce()
+
+	m := ui.NewModel(conn, fake, poller)
+	m.Update(tea.WindowSizeMsg{Width: 200, Height: 50})
+	m.Reload()
+	moveCursorToSession(t, m, "app")
+
+	view := m.View()
+	if !strings.Contains(view, "context:") {
+		t.Fatalf("expected 'context:' line in detail panel, got:\n%s", view)
+	}
+	if !strings.Contains(view, "75%") {
+		t.Fatalf("expected '75%%' in detail panel, got:\n%s", view)
+	}
+}
+
+func TestDetailPanelNoContextLineWhenPctNil(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	if err := db.CreateSession(conn, db.Session{
+		ID: "s1", Title: "app", GroupPath: "my-sessions",
+		TmuxSession: "", ProjectPath: "/p", Tool: "claude",
+		Status: "stopped", CreatedAt: time.Now().Unix(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	m := ui.NewModel(conn, nil, nil)
+	m.Reload()
+	moveCursorToSession(t, m, "app")
+
+	view := m.View()
+	if strings.Contains(view, "context:") {
+		t.Fatalf("expected no 'context:' line when pct is nil, got:\n%s", view)
 	}
 }

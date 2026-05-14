@@ -35,9 +35,11 @@ type Model struct {
 	activePaneIdx  int
 	waitingSince   map[string]time.Time
 	overdueWaiting int
-	selected       map[string]bool
-	showArchived   bool
-	searchQuery    string
+	selected         map[string]bool
+	showArchived     bool
+	searchQuery      string
+	contextPct       map[string]*int
+	navigateToGroup  string
 }
 
 func NewModel(conn *sql.DB, tc tmux.ClientIface, poller *state.Poller) *Model {
@@ -77,19 +79,27 @@ func (m *Model) Reload() error {
 	}
 	m.waitingSince = nil
 	m.overdueWaiting = 0
+	m.contextPct = nil
 	if m.poller != nil {
 		m.waitingSince = m.poller.WaitingSinceSnapshot()
+		m.contextPct = m.poller.ContextPctSnapshot()
 		for i := range m.items {
-			if m.items[i].Kind != "session" || m.items[i].Session.Status != tmux.StatusWaiting {
+			if m.items[i].Kind != "session" {
 				continue
 			}
-			since, ok := m.waitingSince[m.items[i].Session.ID]
+			id := m.items[i].Session.ID
+			m.items[i].ContextPct = m.contextPct[id]
+			if m.items[i].Session.Status != tmux.StatusWaiting {
+				continue
+			}
+			since, ok := m.waitingSince[id]
 			if !ok {
 				continue
 			}
 			m.items[i].WaitLabel = formatElapsed(now.Sub(since))
 			if now.Sub(since) > 30*time.Second {
 				m.overdueWaiting++
+				m.items[i].WaitOverdue = true
 			}
 		}
 	}
@@ -482,6 +492,9 @@ func (m *Model) RenderDetailPanel(w, h int) string {
 	lines = append(lines, fmt.Sprintf(" group: %s", s.GroupPath))
 	lines = append(lines, fmt.Sprintf(" conductor: %t", m.isConductorSession(s)))
 	lines = append(lines, fmt.Sprintf(" tags: %s", s.Tags))
+	if pct, ok := m.contextPct[s.ID]; ok && pct != nil {
+		lines = append(lines, fmt.Sprintf(" context: %s", RenderContextBar(*pct)))
+	}
 	lines = append(lines, " "+renderPaneList(m.panes, m.activePaneIdx))
 
 	const sessionHeaderLines = 6
