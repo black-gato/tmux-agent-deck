@@ -199,6 +199,14 @@ func TestPollerWaitingStyleSendsDirectAlert(t *testing.T) {
 	}
 }
 
+func TestPollerStartHonorsConfiguredInterval(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	p := state.NewWithClockInterval(conn, &stubTmux{exists: true}, notify.New(notify.Config{}), time.Now, 25*time.Millisecond)
+	if got := p.Interval(); got != 25*time.Millisecond {
+		t.Fatalf("interval: got %v want %v", got, 25*time.Millisecond)
+	}
+}
+
 func TestPollerConductorStyleTargetsConductor(t *testing.T) {
 	conn := testutil.OpenTestDB(t)
 	now := time.Now().Unix()

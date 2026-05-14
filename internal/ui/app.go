@@ -64,7 +64,8 @@ func (m *Model) Reload() error {
 	}
 	m.groups = groups
 	m.sessions = sessions
-	m.items = BuildTree(m.visibleGroups(groups), m.visibleSessions(sessions))
+	visibleSessions := m.visibleSessions(sessions)
+	m.items = BuildTree(m.visibleGroups(groups, visibleSessions), visibleSessions)
 	m.pruneSelection()
 	for i := range m.items {
 		if m.items[i].Kind == "session" && m.selected[m.items[i].Session.ID] {
@@ -141,6 +142,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		return m, tea.ClearScreen
 	case tea.KeyMsg:
+		if m.mode == "help" {
+			return m.updateHelp(msg)
+		}
 		if m.mode != "" {
 			return m.updateDialog(msg)
 		}
@@ -150,6 +154,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) updateNavigation(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if msg.Type == tea.KeyEsc && m.searchQuery != "" {
+		m.searchQuery = ""
+		if err := m.Reload(); err != nil {
+			m.err = err
+		}
+		return m, nil
+	}
 	action := actionForKey(msg)
 	switch action {
 	case "down":
@@ -228,6 +239,8 @@ func (m *Model) updateNavigation(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "toggle-full":
 		m.viewFull = !m.viewFull
+	case "help":
+		m.mode = "help"
 	case "edit-notes":
 		if m.cursor < len(m.items) && m.items[m.cursor].Kind == "session" {
 			m.mode = "edit-notes"
@@ -291,9 +304,9 @@ func (m *Model) updateNavigation(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if err := m.Reload(); err != nil {
 			m.err = err
 		}
-	case "search":
-		m.mode = "search"
-		m.dialog = newDialogState("Search:")
+	case "filter":
+		m.mode = "filter"
+		m.dialog = newDialogState("Filter:")
 		m.dialog.value = m.searchQuery
 	}
 	return m, nil
@@ -319,6 +332,10 @@ func (m *Model) View() string {
 
 	header := m.renderAppHeader()
 	footer := m.renderFooter()
+
+	if m.mode == "help" {
+		return header + "\n" + strings.Repeat("─", m.width) + "\n" + m.renderHelpOverlay(m.width, contentH) + "\n" + footer
+	}
 
 	if m.viewFull {
 		sep := strings.Repeat("─", m.width)
@@ -377,11 +394,54 @@ func (m *Model) renderAppHeader() string {
 
 func (m *Model) renderFooter() string {
 	footer := " Enter Attach  x Send  f Fork  b Broadcast  v Output  e Notes  n New  d Delete  q Quit"
-	footer += "  a Archive  A Archived  c Conductor  t Tags  / Search"
+	footer += "  a Archive  A Archived  c Conductor  t Tags  / Filter  ? Help"
 	if len(m.selected) > 0 {
 		return fmt.Sprintf("[%d selected] %s", len(m.selected), footer)
 	}
 	return footer
+}
+
+func (m *Model) updateHelp(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEsc:
+		m.mode = ""
+		return m, nil
+	}
+	switch actionForKey(msg) {
+	case "help", "quit":
+		m.mode = ""
+		return m, nil
+	}
+	return m, nil
+}
+
+func (m *Model) renderHelpOverlay(width, height int) string {
+	lines := []string{"KEYBOARD SHORTCUTS", ""}
+	currentSection := ""
+	for _, binding := range KeyBindings {
+		if binding.Section != currentSection {
+			if currentSection != "" {
+				lines = append(lines, "")
+			}
+			currentSection = binding.Section
+			lines = append(lines, strings.ToUpper(currentSection))
+		}
+		lines = append(lines, fmt.Sprintf(" %-8s %s", binding.Key, binding.Description))
+	}
+	lines = append(lines, "", "Press ? or q to close")
+	if height > 0 && len(lines) > height {
+		lines = lines[:height]
+	}
+	for len(lines) < height {
+		lines = append(lines, "")
+	}
+	if width <= 0 {
+		return strings.Join(lines, "\n")
+	}
+	for i := range lines {
+		lines[i] = truncate(lines[i], width)
+	}
+	return strings.Join(lines, "\n")
 }
 
 func tick() tea.Cmd {
@@ -392,6 +452,9 @@ func tick() tea.Cmd {
 }
 
 func (m *Model) RenderDetailPanel(w, h int) string {
+	if len(m.sessions) == 0 {
+		return m.renderEmptyState(w, h)
+	}
 	if m.cursor >= len(m.items) || m.items[m.cursor].Kind != "session" {
 		return ""
 	}
@@ -462,6 +525,28 @@ func (m *Model) RenderDetailPanel(w, h int) string {
 		lines = append(lines, " e edit")
 	}
 
+	return strings.Join(lines, "\n")
+}
+
+func (m *Model) renderEmptyState(w, h int) string {
+	lines := []string{
+		"WELCOME",
+		"",
+		"Press n to create your first session",
+		"Then attach to launch your agent in tmux.",
+	}
+	if h > 0 && len(lines) > h {
+		lines = lines[:h]
+	}
+	for len(lines) < h {
+		lines = append(lines, "")
+	}
+	if w <= 0 {
+		return strings.Join(lines, "\n")
+	}
+	for i := range lines {
+		lines[i] = truncate(lines[i], w)
+	}
 	return strings.Join(lines, "\n")
 }
 
@@ -587,7 +672,32 @@ func (m *Model) deleteSession(session *db.Session) error {
 	return db.DeleteSession(m.conn, session.ID)
 }
 
-func (m *Model) visibleGroups(groups []db.Group) []db.Group {
+func (m *Model) visibleGroups(groups []db.Group, sessions []db.Session) []db.Group {
+	if strings.TrimSpace(m.searchQuery) != "" {
+		matchingGroups := make(map[string]bool)
+		for _, session := range sessions {
+			groupPath := session.GroupPath
+			for {
+				matchingGroups[groupPath] = true
+				idx := strings.LastIndex(groupPath, "/")
+				if idx == -1 {
+					break
+				}
+				groupPath = groupPath[:idx]
+			}
+		}
+		filtered := make([]db.Group, 0, len(groups))
+		for _, group := range groups {
+			if !matchingGroups[group.Path] {
+				continue
+			}
+			if group.Path == "archived" && !m.showArchived {
+				continue
+			}
+			filtered = append(filtered, group)
+		}
+		return filtered
+	}
 	if m.showArchived {
 		return groups
 	}
