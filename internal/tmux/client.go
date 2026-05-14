@@ -20,6 +20,7 @@ type ClientIface interface {
 	ListSessions() ([]string, error)
 	ListPanes(session string) ([]Pane, error)
 	SendKeys(session string, paneIndex int, keys string) error
+	SendRawKeys(session string, paneIndex int, keys string) error
 }
 
 type Client struct{}
@@ -108,6 +109,13 @@ func paneTarget(session string, paneIndex int) string {
 }
 
 func (c *Client) SendKeys(session string, paneIndex int, keys string) error {
+	if keys == "" {
+		return nil
+	}
+	return runCmd("tmux", "send-keys", "-l", "-t", paneTarget(session, paneIndex), keys)
+}
+
+func (c *Client) SendRawKeys(session string, paneIndex int, keys string) error {
 	if keys == "" {
 		return nil
 	}

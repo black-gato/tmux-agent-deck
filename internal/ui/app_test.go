@@ -524,7 +524,7 @@ func TestSendPaneCallsSendKeys(t *testing.T) {
 	}
 }
 
-func TestSendPaneCtrlCharSent(t *testing.T) {
+func TestSendPaneCtrlCharSentAsRawKey(t *testing.T) {
 	conn := testutil.OpenTestDB(t)
 	fake := testutil.NewFakeTmuxClient()
 	fake.Sessions["ad-s1"] = "> "
@@ -543,11 +543,14 @@ func TestSendPaneCtrlCharSent(t *testing.T) {
 	m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
 	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 
-	if len(fake.SentKeys) != 1 {
-		t.Fatalf("expected 1 SendKeys call, got %d", len(fake.SentKeys))
+	if len(fake.SentRawKeys) != 1 {
+		t.Fatalf("expected 1 SendRawKeys call, got %d", len(fake.SentRawKeys))
 	}
-	if fake.SentKeys[0].Keys != "C-c" {
-		t.Errorf("keys: got %q want C-c", fake.SentKeys[0].Keys)
+	if fake.SentRawKeys[0].Keys != "C-c" {
+		t.Errorf("raw keys: got %q want C-c", fake.SentRawKeys[0].Keys)
+	}
+	if len(fake.SentKeys) != 0 {
+		t.Errorf("expected no literal SendKeys call, got %d", len(fake.SentKeys))
 	}
 }
 
@@ -1555,7 +1558,7 @@ func TestCtrlCCancelsNonSendDialog(t *testing.T) {
 	}
 }
 
-func TestCtrlCInSendPaneDialogAppendsToBuffer(t *testing.T) {
+func TestCtrlCInSendPaneDialogSendsAsRawKey(t *testing.T) {
 	conn := testutil.OpenTestDB(t)
 	fake := testutil.NewFakeTmuxClient()
 	fake.Sessions["ad-s1"] = "output"
@@ -1578,13 +1581,52 @@ func TestCtrlCInSendPaneDialogAppendsToBuffer(t *testing.T) {
 	if m.Mode() != "send-pane" {
 		t.Fatalf("ctrl+c should stay in send-pane mode, got %q", m.Mode())
 	}
-	// confirm — the sent keys should contain "C-c"
 	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	if len(fake.SentKeys) == 0 {
-		t.Fatal("expected SendKeys call")
+
+	// ctrl+c must go via SendRawKeys, not embedded in literal text
+	if len(fake.SentRawKeys) == 0 {
+		t.Fatal("expected SendRawKeys call for C-c")
 	}
-	if !strings.Contains(fake.SentKeys[0].Keys, "C-c") {
-		t.Fatalf("expected C-c in sent keys, got %q", fake.SentKeys[0].Keys)
+	if fake.SentRawKeys[0].Keys != "C-c" {
+		t.Fatalf("expected raw key C-c, got %q", fake.SentRawKeys[0].Keys)
+	}
+	// literal text buffer should be empty (user only pressed ctrl+c)
+	for _, call := range fake.SentKeys {
+		if strings.Contains(call.Keys, "C-c") {
+			t.Fatalf("C-c must not appear in literal SentKeys, got %q", call.Keys)
+		}
+	}
+}
+
+func TestSendPaneLiteralTextSentViaSendKeys(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	fake := testutil.NewFakeTmuxClient()
+	fake.Sessions["ad-s1"] = "output"
+	if err := db.CreateSession(conn, db.Session{
+		ID: "s1", Title: "agent", GroupPath: "my-sessions",
+		TmuxSession: "ad-s1", ProjectPath: "/p", Tool: "claude",
+		Status: "running", CreatedAt: 1000,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	m := ui.NewModel(conn, fake, nil)
+	m.Reload()
+	moveCursorToSession(t, m, "agent")
+
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
+	for _, r := range "hello world" {
+		m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	if len(fake.SentKeys) == 0 {
+		t.Fatal("expected SendKeys call for literal text")
+	}
+	if fake.SentKeys[0].Keys != "hello world" {
+		t.Fatalf("expected literal text %q, got %q", "hello world", fake.SentKeys[0].Keys)
+	}
+	if len(fake.SentRawKeys) != 0 {
+		t.Fatalf("expected no raw key calls for plain text, got %v", fake.SentRawKeys)
 	}
 }
 

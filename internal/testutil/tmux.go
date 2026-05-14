@@ -17,6 +17,7 @@ type FakeTmuxClient struct {
 	AttachCalls     []string
 	KillCalls       []string
 	SentKeys        []SentKeysCall
+	SentRawKeys     []SentKeysCall
 	NewSessionErr   error
 	AttachErr       error
 }
@@ -91,5 +92,10 @@ func (f *FakeTmuxClient) ListPanes(session string) ([]tmux.Pane, error) {
 
 func (f *FakeTmuxClient) SendKeys(session string, paneIndex int, keys string) error {
 	f.SentKeys = append(f.SentKeys, SentKeysCall{Session: session, PaneIndex: paneIndex, Keys: keys})
+	return nil
+}
+
+func (f *FakeTmuxClient) SendRawKeys(session string, paneIndex int, keys string) error {
+	f.SentRawKeys = append(f.SentRawKeys, SentKeysCall{Session: session, PaneIndex: paneIndex, Keys: keys})
 	return nil
 }

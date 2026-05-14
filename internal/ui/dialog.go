@@ -16,6 +16,7 @@ const defaultGroupPath = "my-sessions"
 type dialogState struct {
 	prompt      string
 	value       string
+	ctrlKeys    []string
 	scope       bool
 	scopeLabels [2]string
 }
@@ -43,7 +44,7 @@ func interceptCtrl(msg tea.KeyMsg) (string, bool) {
 func (m *Model) updateDialog(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.mode == "send-pane" || m.mode == "broadcast" {
 		if key, ok := interceptCtrl(msg); ok {
-			m.dialog.value += key
+			m.dialog.ctrlKeys = append(m.dialog.ctrlKeys, key)
 			return m, nil
 		}
 		if msg.Type == tea.KeyTab && m.mode == "broadcast" {
@@ -182,7 +183,7 @@ func (m *Model) commitDialog() {
 			}
 		}
 	case "send-pane":
-		if m.dialog.value == "" {
+		if m.dialog.value == "" && len(m.dialog.ctrlKeys) == 0 {
 			return
 		}
 		if len(m.selected) > 0 {
@@ -194,7 +195,7 @@ func (m *Model) commitDialog() {
 				if s.Status != "running" || s.TmuxSession == "" {
 					continue
 				}
-				if err := m.tmuxC.SendKeys(s.TmuxSession, 0, m.dialog.value); err != nil {
+				if err := m.sendToPane(s.TmuxSession, 0); err != nil {
 					m.err = err
 					return
 				}
@@ -207,7 +208,7 @@ func (m *Model) commitDialog() {
 			if s.TmuxSession == "" {
 				return
 			}
-			if err := m.tmuxC.SendKeys(s.TmuxSession, m.activePaneIdx, m.dialog.value); err != nil {
+			if err := m.sendToPane(s.TmuxSession, m.activePaneIdx); err != nil {
 				m.err = err
 			}
 		}
@@ -231,7 +232,7 @@ func (m *Model) commitDialog() {
 			}
 		}
 	case "broadcast":
-		if m.dialog.value == "" {
+		if m.dialog.value == "" && len(m.dialog.ctrlKeys) == 0 {
 			return
 		}
 		if m.cursor >= len(m.items) {
@@ -257,11 +258,25 @@ func (m *Model) commitDialog() {
 			if !inScope {
 				continue
 			}
-			if err := m.tmuxC.SendKeys(s.TmuxSession, 0, m.dialog.value); err != nil {
+			if err := m.sendToPane(s.TmuxSession, 0); err != nil {
 				m.err = err
 			}
 		}
 	case "filter":
 		m.searchQuery = strings.TrimSpace(m.dialog.value)
 	}
+}
+
+func (m *Model) sendToPane(session string, paneIndex int) error {
+	if m.dialog.value != "" {
+		if err := m.tmuxC.SendKeys(session, paneIndex, m.dialog.value); err != nil {
+			return err
+		}
+	}
+	for _, key := range m.dialog.ctrlKeys {
+		if err := m.tmuxC.SendRawKeys(session, paneIndex, key); err != nil {
+			return err
+		}
+	}
+	return nil
 }
