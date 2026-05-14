@@ -1,11 +1,41 @@
 package tmux_test
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
 	"github.com/black-gato/tmux-agent-deck/internal/tmux"
 )
+
+func TestParseContextPctDetectsPercentage(t *testing.T) {
+	cases := []struct {
+		output string
+		want   *int
+	}{
+		{"Some output\n75% context used · /compact\n> ", intPtr(75)},
+		{"context window: 50%\n> ", intPtr(50)},
+		{"100% context used", intPtr(100)},
+		{"0% context used", intPtr(0)},
+		{"no percentage here\n> ", nil},
+		{"75% complete (not context)", nil},
+		{"", nil},
+	}
+	for _, tc := range cases {
+		got := tmux.ParseContextPct(tc.output)
+		if tc.want == nil && got != nil {
+			t.Errorf("output %q: expected nil, got %d", tc.output, *got)
+		} else if tc.want != nil && (got == nil || *got != *tc.want) {
+			gotStr := "<nil>"
+			if got != nil {
+				gotStr = fmt.Sprintf("%d", *got)
+			}
+			t.Errorf("output %q: expected %d, got %s", tc.output, *tc.want, gotStr)
+		}
+	}
+}
+
+func intPtr(n int) *int { return &n }
 
 func TestDetectStatusWaiting(t *testing.T) {
 	for _, output := range []string{

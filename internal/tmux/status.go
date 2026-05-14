@@ -1,6 +1,7 @@
 package tmux
 
 import (
+	"strconv"
 	"strings"
 	"time"
 )
@@ -16,6 +17,34 @@ const (
 )
 
 var spinnerChars = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+
+func ParseContextPct(output string) *int {
+	for _, line := range strings.Split(output, "\n") {
+		lower := strings.ToLower(line)
+		if !strings.Contains(lower, "context used") &&
+			!strings.Contains(lower, "context window") &&
+			!strings.Contains(lower, "% context") {
+			continue
+		}
+		idx := strings.Index(line, "%")
+		if idx <= 0 {
+			continue
+		}
+		start := idx - 1
+		for start > 0 && line[start-1] >= '0' && line[start-1] <= '9' {
+			start--
+		}
+		if start == idx {
+			continue
+		}
+		n, err := strconv.Atoi(line[start:idx])
+		if err != nil || n < 0 || n > 100 {
+			continue
+		}
+		return &n
+	}
+	return nil
+}
 
 func lastLine(s string) string {
 	if idx := strings.LastIndex(s, "\n"); idx >= 0 {
