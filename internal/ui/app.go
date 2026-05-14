@@ -314,7 +314,7 @@ func (m *Model) updateNavigation(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m *Model) View() string {
 	if m.err != nil {
-		return "error: " + m.err.Error()
+		return "error: " + m.err.Error() + "\n\nPress q or ctrl+c to quit"
 	}
 
 	leftW := int(float64(m.width) * 0.35)
@@ -740,7 +740,7 @@ func (m *Model) escalateSelectedSession() error {
 	}
 	session := m.items[m.cursor].Session
 	if session.Status != tmux.StatusWaiting {
-		return fmt.Errorf("session %q is not waiting", session.Title)
+		return nil
 	}
 	conductor, err := db.GetGroupConductorSession(m.conn, session.GroupPath)
 	if err != nil {

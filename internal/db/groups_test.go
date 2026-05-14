@@ -1,6 +1,7 @@
 package db_test
 
 import (
+	"errors"
 	"testing"
 
 	dbpkg "github.com/black-gato/tmux-agent-deck/internal/db"
@@ -91,6 +92,21 @@ func TestUpdateGroupExpanded(t *testing.T) {
 	g, _ := dbpkg.GetGroup(conn, "work")
 	if g.Expanded {
 		t.Errorf("expected expanded=false")
+	}
+}
+
+func TestCreateGroupDuplicatePathReturnsErrGroupExists(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	g := dbpkg.Group{Path: "work", Name: "work", DefaultTool: "claude", Expanded: true}
+	if err := dbpkg.CreateGroup(conn, g); err != nil {
+		t.Fatalf("first create: %v", err)
+	}
+	err := dbpkg.CreateGroup(conn, g)
+	if err == nil {
+		t.Fatal("expected error on duplicate path, got nil")
+	}
+	if !errors.Is(err, dbpkg.ErrGroupExists) {
+		t.Fatalf("expected ErrGroupExists, got %v", err)
 	}
 }
 

@@ -42,6 +42,7 @@ var keyTypeMap = map[tea.KeyType]string{
 	tea.KeyEnter: "attach",
 	tea.KeySpace: "toggle",
 	tea.KeyTab:   "cycle-pane",
+	tea.KeyCtrlC: "quit",
 }
 
 var runeMap = func() map[rune]string {

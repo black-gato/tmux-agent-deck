@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -29,6 +30,9 @@ var groupCreateCmd = &cobra.Command{
 			Expanded:    true,
 		}
 		if err := db.CreateGroup(rootDB, g); err != nil {
+			if errors.Is(err, db.ErrGroupExists) {
+				return fmt.Errorf("group %q already exists", path)
+			}
 			return fmt.Errorf("create group: %w", err)
 		}
 		fmt.Fprintf(cmd.OutOrStdout(), "Created group %q\n", path)

@@ -2,9 +2,12 @@ package db
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 )
+
+var ErrGroupExists = errors.New("group already exists")
 
 type Group struct {
 	Path               string
@@ -26,6 +29,9 @@ func CreateGroup(conn *sql.DB, g Group) error {
 		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		g.Path, g.Name, g.DefaultPath, g.DefaultTool, g.ConductorSessionID, expanded, g.SortOrder,
 	)
+	if err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed: groups.path") {
+		return fmt.Errorf("group %q: %w", g.Path, ErrGroupExists)
+	}
 	return err
 }
 

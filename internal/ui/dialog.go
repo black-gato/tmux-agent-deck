@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -51,7 +52,7 @@ func (m *Model) updateDialog(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 	switch msg.Type {
-	case tea.KeyEsc:
+	case tea.KeyEsc, tea.KeyCtrlC:
 		m.mode = ""
 	case tea.KeyEnter:
 		m.commitDialog()
@@ -125,7 +126,11 @@ func (m *Model) commitDialog() {
 			DefaultTool: "claude",
 			Expanded:    true,
 		}); err != nil {
-			m.err = err
+			if errors.Is(err, db.ErrGroupExists) {
+				m.err = fmt.Errorf("group %q already exists", val)
+			} else {
+				m.err = err
+			}
 		}
 	case "rename":
 		val := strings.TrimSpace(m.dialog.value)

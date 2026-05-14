@@ -59,6 +59,26 @@ func TestListAcceptsNotifyFlags(t *testing.T) {
 	}
 }
 
+func TestGroupCreateDuplicateShowsFriendlyError(t *testing.T) {
+	dbPath := t.TempDir() + "/test.db"
+	t.Setenv("AGENT_DECK_DB", dbPath)
+
+	var out bytes.Buffer
+	if err := cmd.RunWith([]string{"group", "create", "work"}, &out); err != nil {
+		t.Fatalf("first create: %v", err)
+	}
+	err := cmd.RunWith([]string{"group", "create", "work"}, &out)
+	if err == nil {
+		t.Fatal("expected error on duplicate group, got nil")
+	}
+	if bytes.Contains([]byte(err.Error()), []byte("UNIQUE constraint")) {
+		t.Fatalf("expected friendly error, got raw SQL: %v", err)
+	}
+	if !bytes.Contains([]byte(err.Error()), []byte("already exists")) {
+		t.Fatalf("expected 'already exists' in error, got: %v", err)
+	}
+}
+
 func TestListRejectsInvalidPollFlag(t *testing.T) {
 	dbPath := t.TempDir() + "/test.db"
 	t.Setenv("AGENT_DECK_DB", dbPath)

@@ -1520,6 +1520,137 @@ func TestCyclePaneAdvancesIndex(t *testing.T) {
 	}
 }
 
+func TestCtrlCQuitsInNavigationMode(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	m := ui.NewModel(conn, nil, nil)
+	m.Reload()
+
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+
+	if cmd == nil {
+		t.Fatal("expected a quit command, got nil")
+	}
+	msg := cmd()
+	if _, ok := msg.(tea.QuitMsg); !ok {
+		t.Fatalf("expected tea.QuitMsg, got %T", msg)
+	}
+}
+
+func TestCtrlCCancelsNonSendDialog(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	m := ui.NewModel(conn, nil, nil)
+	m.Reload()
+
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+	if m.Mode() != "new-session" {
+		t.Fatal("expected new-session mode")
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+
+	if m.Mode() != "" {
+		t.Fatalf("expected mode empty after ctrl+c, got %q", m.Mode())
+	}
+	if strings.Contains(m.View(), "error:") {
+		t.Fatalf("expected no error after ctrl+c cancel, got: %q", m.View())
+	}
+}
+
+func TestCtrlCInSendPaneDialogAppendsToBuffer(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	fake := testutil.NewFakeTmuxClient()
+	fake.Sessions["ad-s1"] = "output"
+	if err := db.CreateSession(conn, db.Session{
+		ID: "s1", Title: "agent", GroupPath: "my-sessions",
+		TmuxSession: "ad-s1", ProjectPath: "/p", Tool: "claude",
+		Status: "running", CreatedAt: 1000,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	m := ui.NewModel(conn, fake, nil)
+	m.Reload()
+	moveCursorToSession(t, m, "agent")
+
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
+	if m.Mode() != "send-pane" {
+		t.Fatal("expected send-pane mode")
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	if m.Mode() != "send-pane" {
+		t.Fatalf("ctrl+c should stay in send-pane mode, got %q", m.Mode())
+	}
+	// confirm — the sent keys should contain "C-c"
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if len(fake.SentKeys) == 0 {
+		t.Fatal("expected SendKeys call")
+	}
+	if !strings.Contains(fake.SentKeys[0].Keys, "C-c") {
+		t.Fatalf("expected C-c in sent keys, got %q", fake.SentKeys[0].Keys)
+	}
+}
+
+func TestErrorViewShowsQuitHint(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	m := ui.NewModel(conn, nil, nil)
+	m.Reload()
+
+	// force m.err via Init() on a closed DB (Init sets m.err on Reload failure)
+	conn.Close()
+	m.Init()
+
+	view := m.View()
+	if !strings.Contains(view, "error:") {
+		t.Fatalf("expected error view, got %q", view)
+	}
+	if !strings.Contains(view, "ctrl+c") {
+		t.Fatalf("expected quit hint in error view, got %q", view)
+	}
+}
+
+func TestNewGroupDuplicatePathShowsFriendlyError(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	if err := db.CreateGroup(conn, db.Group{Path: "work", Name: "work", Expanded: true}); err != nil {
+		t.Fatal(err)
+	}
+	m := ui.NewModel(conn, nil, nil)
+	m.Reload()
+
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}})
+	for _, r := range "work" {
+		m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	view := m.View()
+	if strings.Contains(view, "UNIQUE constraint") {
+		t.Fatalf("expected friendly error, got raw SQL: %q", view)
+	}
+	if !strings.Contains(view, "already exists") {
+		t.Fatalf("expected 'already exists' in error view, got: %q", view)
+	}
+}
+
+func TestCOnNonWaitingSessionIsNoOp(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	if err := db.CreateSession(conn, db.Session{
+		ID: "s1", Title: "running-session", GroupPath: "my-sessions",
+		ProjectPath: "/p", Tool: "claude", Status: "running", CreatedAt: 1000,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	m := ui.NewModel(conn, testutil.NewFakeTmuxClient(), nil)
+	m.Reload()
+	moveCursorToSession(t, m, "running-session")
+
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'C'}})
+
+	if strings.Contains(m.View(), "error:") {
+		t.Fatalf("expected no error for C on non-waiting session, got: %q", m.View())
+	}
+	if m.Mode() != "" {
+		t.Fatalf("expected empty mode, got %q", m.Mode())
+	}
+}
+
 func TestCyclePaneResetsOnReload(t *testing.T) {
 	conn := testutil.OpenTestDB(t)
 	fake := testutil.NewFakeTmuxClient()
