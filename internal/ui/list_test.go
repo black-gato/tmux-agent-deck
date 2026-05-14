@@ -146,6 +146,53 @@ func TestRenderListShowsConductorMark(t *testing.T) {
 	}
 }
 
+func TestRenderContextBar(t *testing.T) {
+	cases := []struct {
+		pct  int
+		want string
+	}{
+		{0, "░░░░ 0%"},
+		{25, "▓░░░ 25%"},
+		{50, "▓▓░░ 50%"},
+		{75, "▓▓▓░ 75%"},
+		{100, "▓▓▓▓ 100%"},
+	}
+	for _, tc := range cases {
+		got := ui.RenderContextBar(tc.pct)
+		if got != tc.want {
+			t.Errorf("pct %d: got %q, want %q", tc.pct, got, tc.want)
+		}
+	}
+}
+
+func TestRenderListShowsContextBar(t *testing.T) {
+	pct := 75
+	items := []ui.ListItem{
+		{
+			Kind:       "session",
+			Session:    &db.Session{ID: "s1", Title: "my-app", Status: "running"},
+			ContextPct: &pct,
+		},
+	}
+	out := ui.RenderList(items, 0, 80, 20)
+	if !strings.Contains(out, "▓▓▓░ 75%") {
+		t.Errorf("expected context bar in list output, got:\n%s", out)
+	}
+}
+
+func TestRenderListNoBarWhenContextPctNil(t *testing.T) {
+	items := []ui.ListItem{
+		{
+			Kind:    "session",
+			Session: &db.Session{ID: "s1", Title: "my-app", Status: "running"},
+		},
+	}
+	out := ui.RenderList(items, 0, 80, 20)
+	if strings.Contains(out, "▓") || strings.Contains(out, "░") {
+		t.Errorf("expected no context bar when ContextPct is nil, got:\n%s", out)
+	}
+}
+
 func stripANSI(s string) string {
 	var result []rune
 	runes := []rune(s)

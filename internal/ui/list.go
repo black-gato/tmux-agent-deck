@@ -14,6 +14,8 @@ type ListItem struct {
 	Session     *db.Session
 	Depth       int
 	WaitLabel   string
+	WaitOverdue bool
+	ContextPct  *int
 	Selected    bool
 	IsConductor bool
 }
@@ -27,10 +29,24 @@ var statusSymbol = map[string]string{
 }
 
 var (
-	selectedStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("12"))
-	groupStyle    = lipgloss.NewStyle().Bold(true)
-	dimStyle      = lipgloss.NewStyle().Faint(true)
+	selectedStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("12"))
+	groupStyle       = lipgloss.NewStyle().Bold(true)
+	dimStyle         = lipgloss.NewStyle().Faint(true)
+	overdueWaitStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("214")) // amber
 )
+
+func RenderContextBar(pct int) string {
+	filled := (pct * 4) / 100
+	var bar strings.Builder
+	for i := 0; i < 4; i++ {
+		if i < filled {
+			bar.WriteRune('▓')
+		} else {
+			bar.WriteRune('░')
+		}
+	}
+	return fmt.Sprintf("%s %d%%", bar.String(), pct)
+}
 
 func BuildTree(groups []db.Group, sessions []db.Session) []ListItem {
 	sessionsByGroup := make(map[string][]db.Session)
@@ -134,14 +150,30 @@ func RenderList(items []ListItem, cursor, width, height int) string {
 			if item.WaitLabel != "" {
 				prefixLen += len([]rune(item.WaitLabel)) + 1
 			}
+			if item.ContextPct != nil {
+				prefixLen += len([]rune(RenderContextBar(*item.ContextPct))) + 1
+			}
 			titleMax := width - prefixLen
 			if titleMax < 1 {
 				titleMax = 1
 			}
 			title := truncate(item.Session.Title, titleMax)
-			raw := fmt.Sprintf("%s%s%s  %s", indent, mark, sym, title)
-			if item.WaitLabel != "" {
-				raw = fmt.Sprintf("%s%s%s %s %s", indent, mark, sym, item.WaitLabel, title)
+
+			waitStr := item.WaitLabel
+			if item.WaitOverdue && !selected {
+				waitStr = overdueWaitStyle.Render(waitStr)
+			}
+
+			var raw string
+			switch {
+			case item.WaitLabel != "" && item.ContextPct != nil:
+				raw = fmt.Sprintf("%s%s%s %s %s %s", indent, mark, sym, waitStr, RenderContextBar(*item.ContextPct), title)
+			case item.WaitLabel != "":
+				raw = fmt.Sprintf("%s%s%s %s %s", indent, mark, sym, waitStr, title)
+			case item.ContextPct != nil:
+				raw = fmt.Sprintf("%s%s%s %s %s", indent, mark, sym, RenderContextBar(*item.ContextPct), title)
+			default:
+				raw = fmt.Sprintf("%s%s%s  %s", indent, mark, sym, title)
 			}
 			if selected {
 				line = selectedStyle.Render(raw)
