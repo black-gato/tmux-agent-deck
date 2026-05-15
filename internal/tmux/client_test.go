@@ -55,3 +55,34 @@ func TestParsePanesOutput(t *testing.T) {
 		})
 	}
 }
+
+func TestResolveLaunchCommand(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		want    string
+	}{
+		{
+			name:  "shell profile launches login zsh",
+			input: "shell",
+			want:  "zsh -il",
+		},
+		{
+			name:  "other commands pass through",
+			input: "claude",
+			want:  "claude",
+		},
+		{
+			name:  "empty stays empty",
+			input: "",
+			want:  "",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := resolveLaunchCommand(tc.input); got != tc.want {
+				t.Fatalf("resolveLaunchCommand(%q) = %q, want %q", tc.input, got, tc.want)
+			}
+		})
+	}
+}

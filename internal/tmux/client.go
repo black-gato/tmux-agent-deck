@@ -29,10 +29,19 @@ func NewClient() *Client {
 	return &Client{}
 }
 
+func resolveLaunchCommand(command string) string {
+	switch strings.TrimSpace(command) {
+	case "shell":
+		return "zsh -il"
+	default:
+		return command
+	}
+}
+
 func (c *Client) NewSession(name, startDir, command string) error {
 	args := []string{"new-session", "-d", "-s", name, "-c", startDir}
-	if command != "" {
-		args = append(args, command)
+	if launch := resolveLaunchCommand(command); launch != "" {
+		args = append(args, launch)
 	}
 	return runCmd("tmux", args...)
 }

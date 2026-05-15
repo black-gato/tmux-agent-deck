@@ -79,6 +79,32 @@ func TestGroupCreateDuplicateShowsFriendlyError(t *testing.T) {
 	}
 }
 
+func TestRemoveSessionWithSlashTitle(t *testing.T) {
+	dbPath := t.TempDir() + "/test.db"
+	t.Setenv("AGENT_DECK_DB", dbPath)
+
+	var out bytes.Buffer
+	if err := cmd.RunWith([]string{"add", "--title", "////", "--project", "/tmp"}, &out); err != nil {
+		t.Fatalf("add slash-title session: %v", err)
+	}
+
+	out.Reset()
+	if err := cmd.RunWith([]string{"remove", "////"}, &out); err != nil {
+		t.Fatalf("remove slash-title session: %v", err)
+	}
+	if !bytes.Contains(out.Bytes(), []byte(`Removed session "////"`)) {
+		t.Fatalf("unexpected remove output: %q", out.String())
+	}
+
+	out.Reset()
+	if err := cmd.RunWith([]string{"list"}, &out); err != nil {
+		t.Fatalf("list after remove: %v", err)
+	}
+	if bytes.Contains(out.Bytes(), []byte("////")) {
+		t.Fatalf("slash-title session still present after remove: %q", out.String())
+	}
+}
+
 func TestListRejectsInvalidPollFlag(t *testing.T) {
 	dbPath := t.TempDir() + "/test.db"
 	t.Setenv("AGENT_DECK_DB", dbPath)
