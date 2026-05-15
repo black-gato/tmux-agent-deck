@@ -35,7 +35,8 @@ type Model struct {
 	mode           string // "", "new-session", "new-group", "rename", "move"
 	dialog         dialogState
 	err            error
-	PendingAttach  string // tmux session name to attach after TUI exits
+	PendingAttach        string // tmux session name to attach after TUI exits
+	PendingStartupScript string
 	viewFull       bool
 	panes          []tmux.Pane
 	output         string
@@ -206,12 +207,15 @@ func (m *Model) updateNavigation(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.cursor < len(m.items) {
 			item := m.items[m.cursor]
 			if item.Kind == "session" {
-				tmuxName, err := m.ensureStarted(item.Session)
+				tmuxName, isNew, err := m.ensureStarted(item.Session)
 				if err != nil {
 					m.err = err
 					break
 				}
 				m.PendingAttach = tmuxName
+				if isNew && item.Session.StartupScript != "" {
+					m.PendingStartupScript = item.Session.StartupScript
+				}
 				if m.poller != nil {
 					m.poller.Stop()
 				}
@@ -886,18 +890,19 @@ func matchesSearchQuery(session db.Session, query string) bool {
 }
 
 // ensureStarted returns the tmux session name for s, spawning one if needed.
-func (m *Model) ensureStarted(s *db.Session) (string, error) {
+// The bool return indicates whether a new tmux session was created.
+func (m *Model) ensureStarted(s *db.Session) (string, bool, error) {
 	if s.TmuxSession != "" {
 		exists, err := m.tmuxC.SessionExists(s.TmuxSession)
 		if err == nil && exists {
-			return s.TmuxSession, nil
+			return s.TmuxSession, false, nil
 		}
 	}
 	tmuxName := fmt.Sprintf("ad-%s", s.ID[:8])
 	if err := m.tmuxC.NewSession(tmuxName, s.ProjectPath, s.Tool); err != nil {
-		return "", fmt.Errorf("start session: %w", err)
+		return "", false, fmt.Errorf("start session: %w", err)
 	}
 	_ = db.UpdateSessionTmuxName(m.conn, s.ID, tmuxName)
 	_ = db.UpdateSessionStatus(m.conn, s.ID, "waiting")
-	return tmuxName, nil
+	return tmuxName, true, nil
 }

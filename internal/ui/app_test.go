@@ -1887,6 +1887,65 @@ func TestDetailPanelShowsContextLine(t *testing.T) {
 	}
 }
 
+func TestPendingStartupScriptSetForNewSession(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	fake := testutil.NewFakeTmuxClient()
+
+	if err := db.CreateSession(conn, db.Session{
+		ID:            "abc12345-0000-0000-0000-000000000001",
+		Title:         "with-script",
+		GroupPath:     "my-sessions",
+		ProjectPath:   "/tmp",
+		Tool:          "claude",
+		Status:        "stopped",
+		CreatedAt:     1000,
+		StartupScript: "claude --resume",
+	}); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	m := ui.NewModel(conn, fake, nil)
+	m.Reload()
+
+	moveCursorToSession(t, m, "with-script")
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	if m.PendingStartupScript != "claude --resume" {
+		t.Errorf("PendingStartupScript: got %q want %q", m.PendingStartupScript, "claude --resume")
+	}
+}
+
+func TestPendingStartupScriptNotSetForExistingSession(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	fake := testutil.NewFakeTmuxClient()
+	// Pre-create the tmux session so ensureStarted returns isNew=false
+	fake.Sessions["ad-abc12345"] = ""
+
+	if err := db.CreateSession(conn, db.Session{
+		ID:            "abc12345-0000-0000-0000-000000000002",
+		Title:         "already-running",
+		GroupPath:     "my-sessions",
+		TmuxSession:   "ad-abc12345",
+		ProjectPath:   "/tmp",
+		Tool:          "claude",
+		Status:        "running",
+		CreatedAt:     1000,
+		StartupScript: "claude --resume",
+	}); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	m := ui.NewModel(conn, fake, nil)
+	m.Reload()
+
+	moveCursorToSession(t, m, "already-running")
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	if m.PendingStartupScript != "" {
+		t.Errorf("PendingStartupScript should be empty for existing session, got %q", m.PendingStartupScript)
+	}
+}
+
 func TestDetailPanelNoContextLineWhenPctNil(t *testing.T) {
 	conn := testutil.OpenTestDB(t)
 	if err := db.CreateSession(conn, db.Session{
