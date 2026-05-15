@@ -46,20 +46,21 @@ func migrate(conn *sql.DB) error {
 			sort_order   INTEGER NOT NULL DEFAULT 0
 		);
 		CREATE TABLE IF NOT EXISTS sessions (
-			id           TEXT PRIMARY KEY,
-			title        TEXT NOT NULL,
-			group_path   TEXT NOT NULL DEFAULT 'my-sessions',
-			tmux_session TEXT NOT NULL DEFAULT '',
-			project_path TEXT NOT NULL,
-			tool         TEXT NOT NULL DEFAULT 'claude',
-			status       TEXT NOT NULL DEFAULT 'stopped',
-			created_at   INTEGER NOT NULL,
-			last_active  INTEGER NOT NULL DEFAULT 0,
-			notes        TEXT NOT NULL DEFAULT '',
-			archived     INTEGER NOT NULL DEFAULT 0,
-			tags         TEXT NOT NULL DEFAULT ''
+			id             TEXT PRIMARY KEY,
+			title          TEXT NOT NULL,
+			group_path     TEXT NOT NULL DEFAULT 'my-sessions',
+			tmux_session   TEXT NOT NULL DEFAULT '',
+			project_path   TEXT NOT NULL,
+			tool           TEXT NOT NULL DEFAULT 'claude',
+			status         TEXT NOT NULL DEFAULT 'stopped',
+			created_at     INTEGER NOT NULL,
+			last_active    INTEGER NOT NULL DEFAULT 0,
+			notes          TEXT NOT NULL DEFAULT '',
+			archived       INTEGER NOT NULL DEFAULT 0,
+			tags           TEXT NOT NULL DEFAULT '',
+			startup_script TEXT NOT NULL DEFAULT ''
 		);
-		INSERT OR IGNORE INTO metadata (key, value) VALUES ('schema_version', '4');
+		INSERT OR IGNORE INTO metadata (key, value) VALUES ('schema_version', '5');
 		INSERT OR IGNORE INTO groups (path, name) VALUES ('my-sessions', 'my-sessions');
 		INSERT OR IGNORE INTO groups (path, name) VALUES ('archived', 'archived');
 	`)
@@ -99,6 +100,15 @@ func migrate(conn *sql.DB) error {
 			return err
 		}
 		if _, err := conn.Exec(`UPDATE metadata SET value = '4' WHERE key = 'schema_version'`); err != nil {
+			return err
+		}
+		version = "4"
+	}
+	if version == "4" {
+		if _, err := conn.Exec(`ALTER TABLE sessions ADD COLUMN startup_script TEXT NOT NULL DEFAULT ''`); err != nil {
+			return err
+		}
+		if _, err := conn.Exec(`UPDATE metadata SET value = '5' WHERE key = 'schema_version'`); err != nil {
 			return err
 		}
 	}

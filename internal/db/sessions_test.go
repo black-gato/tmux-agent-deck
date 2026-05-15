@@ -301,6 +301,30 @@ func TestGetGroupConductorSession(t *testing.T) {
 	}
 }
 
+func TestSessionStartupScriptPersistedAndRetrieved(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	s := dbpkg.Session{
+		ID:            "script-test-1111-2222-3333-444455556666",
+		Title:         "test",
+		GroupPath:     "my-sessions",
+		ProjectPath:   "/tmp",
+		Tool:          "claude",
+		Status:        "stopped",
+		CreatedAt:     1000,
+		StartupScript: "claude --resume",
+	}
+	if err := dbpkg.CreateSession(conn, s); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	got, err := dbpkg.GetSession(conn, s.ID)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if got.StartupScript != "claude --resume" {
+		t.Errorf("StartupScript: got %q want %q", got.StartupScript, "claude --resume")
+	}
+}
+
 func TestListWaitingGroupChildren(t *testing.T) {
 	conn := testutil.OpenTestDB(t)
 	now := time.Now().Unix()

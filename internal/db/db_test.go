@@ -39,7 +39,7 @@ func TestOpenCreatesSchemaVersion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("query schema_version: %v", err)
 	}
-	if val != "4" {
-		t.Errorf("schema_version: got %q want %q", val, "4")
+	if val != "5" {
+		t.Errorf("schema_version: got %q want %q", val, "5")
 	}
 }
