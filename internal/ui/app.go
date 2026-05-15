@@ -3,6 +3,7 @@ package ui
 import (
 	"database/sql"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -218,8 +219,46 @@ func (m *Model) updateNavigation(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 	case "new-session":
+		defaultPath := "."
+		if wd, err := os.Getwd(); err == nil {
+			defaultPath = wd
+		}
+		defaultTool := "claude"
+		var cursorGroupPath string
+		if m.cursor < len(m.items) {
+			item := m.items[m.cursor]
+			if item.Kind == "group" {
+				cursorGroupPath = item.Group.Path
+			} else if item.Kind == "session" {
+				cursorGroupPath = item.Session.GroupPath
+			}
+		}
+		for _, g := range m.groups {
+			if g.Path == cursorGroupPath {
+				if g.DefaultPath != "" {
+					defaultPath = g.DefaultPath
+				}
+				if g.DefaultTool != "" {
+					defaultTool = g.DefaultTool
+				}
+				break
+			}
+		}
+		toolOptions := []string{"claude", "aider", "cursor", "bash", "custom"}
+		toolIdx := 0
+		for i, t := range toolOptions {
+			if t == defaultTool {
+				toolIdx = i
+				break
+			}
+		}
 		m.mode = "new-session"
-		m.dialog = newDialogState("Session title:")
+		m.dialog = dialogState{
+			prompt:      "Session title:",
+			toolOptions: toolOptions,
+			toolIdx:     toolIdx,
+			savedPath:   defaultPath,
+		}
 	case "new-group":
 		m.mode = "new-group"
 		m.dialog = newDialogState("Group path (e.g. work/frontend):")

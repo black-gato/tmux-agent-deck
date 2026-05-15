@@ -3,6 +3,8 @@ package ui
 import (
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -13,12 +15,56 @@ import (
 
 const defaultGroupPath = "my-sessions"
 
+func expandPath(p string) string {
+	if p == "~" {
+		if home, err := os.UserHomeDir(); err == nil {
+			return home
+		}
+		return p
+	}
+	if strings.HasPrefix(p, "~/") {
+		if home, err := os.UserHomeDir(); err == nil {
+			return filepath.Join(home, p[2:])
+		}
+	}
+	return os.ExpandEnv(p)
+}
+
+func (m *Model) advanceNewSessionStep() {
+	switch m.dialog.step {
+	case 0:
+		val := strings.TrimSpace(m.dialog.value)
+		if val == "" {
+			return
+		}
+		m.dialog.savedTitle = val
+		m.dialog.step = 1
+		m.dialog.prompt = "Project path:"
+		m.dialog.value = m.dialog.savedPath
+	case 1:
+		m.dialog.savedPath = m.dialog.value
+		m.dialog.step = 2
+		m.dialog.prompt = "Tool:"
+		m.dialog.value = ""
+	case 2:
+		m.dialog.step = 3
+		m.dialog.prompt = "Startup script (optional):"
+		m.dialog.value = ""
+	}
+}
+
 type dialogState struct {
 	prompt      string
 	value       string
 	ctrlKeys    []string
 	scope       bool
 	scopeLabels [2]string
+	// multi-step new-session flow
+	step        int
+	savedTitle  string
+	savedPath   string
+	toolOptions []string
+	toolIdx     int
 }
 
 func newDialogState(prompt string) dialogState {
@@ -52,10 +98,28 @@ func (m *Model) updateDialog(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 	}
+	if m.mode == "new-session" && m.dialog.step == 2 {
+		switch msg.Type {
+		case tea.KeyLeft:
+			if m.dialog.toolIdx > 0 {
+				m.dialog.toolIdx--
+			} else {
+				m.dialog.toolIdx = len(m.dialog.toolOptions) - 1
+			}
+			return m, nil
+		case tea.KeyRight:
+			m.dialog.toolIdx = (m.dialog.toolIdx + 1) % len(m.dialog.toolOptions)
+			return m, nil
+		}
+	}
 	switch msg.Type {
 	case tea.KeyEsc, tea.KeyCtrlC:
 		m.mode = ""
 	case tea.KeyEnter:
+		if m.mode == "new-session" && m.dialog.step < 3 {
+			m.advanceNewSessionStep()
+			return m, nil
+		}
 		m.commitDialog()
 		m.mode = ""
 		if err := m.Reload(); err != nil {
@@ -98,28 +162,43 @@ func (m *Model) renderDialog() string {
 		}
 		return fmt.Sprintf("Broadcast [%s / %s]:\n> %s", label0, label1, m.dialog.value)
 	}
+	if m.mode == "new-session" && m.dialog.step == 2 {
+		var parts []string
+		for i, t := range m.dialog.toolOptions {
+			if i == m.dialog.toolIdx {
+				parts = append(parts, selectedStyle.Render("["+t+"]"))
+			} else {
+				parts = append(parts, dimStyle.Render(t))
+			}
+		}
+		return m.dialog.prompt + "\n← → to select:  " + strings.Join(parts, "  ")
+	}
 	return m.dialog.prompt + "\n> " + m.dialog.value
 }
 
 func (m *Model) commitDialog() {
 	switch m.mode {
 	case "new-session":
-		val := strings.TrimSpace(m.dialog.value)
-		if val == "" {
+		if m.dialog.savedTitle == "" {
 			return
 		}
 		groupPath := defaultGroupPath
 		if m.cursor < len(m.items) && m.items[m.cursor].Kind == "group" {
 			groupPath = m.items[m.cursor].Group.Path
 		}
+		path := strings.TrimSpace(m.dialog.savedPath)
+		if path == "" {
+			path = "."
+		}
 		if err := db.CreateSession(m.conn, db.Session{
-			ID:          uuid.New().String(),
-			Title:       val,
-			GroupPath:   groupPath,
-			ProjectPath: ".",
-			Tool:        "claude",
-			Status:      "stopped",
-			CreatedAt:   time.Now().Unix(),
+			ID:            uuid.New().String(),
+			Title:         m.dialog.savedTitle,
+			GroupPath:     groupPath,
+			ProjectPath:   expandPath(path),
+			Tool:          m.dialog.toolOptions[m.dialog.toolIdx],
+			Status:        "stopped",
+			CreatedAt:     time.Now().Unix(),
+			StartupScript: strings.TrimSpace(m.dialog.value),
 		}); err != nil {
 			m.err = err
 		}

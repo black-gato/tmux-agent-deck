@@ -84,14 +84,14 @@ func TestNewSessionDialogCreatesSession(t *testing.T) {
 	m := ui.NewModel(conn, nil, nil)
 	m.Reload()
 
-	// open new-session dialog
 	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
-	// type title
 	for _, r := range "my-app" {
 		m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
 	}
-	// confirm
-	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter}) // step 0 → 1
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter}) // step 1 → 2
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter}) // step 2 → 3
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter}) // step 3 → commit
 
 	sessions, err := db.ListSessions(conn)
 	if err != nil {
@@ -105,6 +105,109 @@ func TestNewSessionDialogCreatesSession(t *testing.T) {
 	}
 	if sessions[0].GroupPath != "my-sessions" {
 		t.Errorf("group: got %q want my-sessions", sessions[0].GroupPath)
+	}
+}
+
+func TestNewSessionFlowCreatesSessionWithTool(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	m := ui.NewModel(conn, nil, nil)
+	m.Reload()
+
+	// Open new session dialog
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+	if m.Mode() != "new-session" {
+		t.Fatalf("expected new-session mode, got %q", m.Mode())
+	}
+
+	// Step 0: type title and press Enter — mode must stay "new-session"
+	for _, r := range "fleet-agent" {
+		m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if m.Mode() != "new-session" {
+		t.Fatalf("mode must stay new-session after step 0, got %q", m.Mode())
+	}
+
+	// Step 1: accept default path with Enter
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if m.Mode() != "new-session" {
+		t.Fatalf("mode must stay new-session after step 1, got %q", m.Mode())
+	}
+
+	// Step 2: cycle tool to "aider" (right arrow from "claude"), then Enter
+	m.Update(tea.KeyMsg{Type: tea.KeyRight})
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if m.Mode() != "new-session" {
+		t.Fatalf("mode must stay new-session after step 2, got %q", m.Mode())
+	}
+
+	// Step 3: empty startup script, Enter to commit
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if m.Mode() != "" {
+		t.Errorf("expected mode cleared after commit, got %q", m.Mode())
+	}
+
+	sessions, err := db.ListSessions(conn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found *db.Session
+	for i := range sessions {
+		if sessions[i].Title == "fleet-agent" {
+			found = &sessions[i]
+			break
+		}
+	}
+	if found == nil {
+		t.Fatalf("session 'fleet-agent' not created")
+	}
+	if found.Tool != "aider" {
+		t.Errorf("Tool: got %q want %q", found.Tool, "aider")
+	}
+}
+
+func TestNewSessionInheritsGroupDefaults(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	// Set group defaults on the default group
+	if _, err := conn.Exec(`UPDATE groups SET default_path = '/opt/api', default_tool = 'aider' WHERE path = 'my-sessions'`); err != nil {
+		t.Fatalf("set group defaults: %v", err)
+	}
+	m := ui.NewModel(conn, nil, nil)
+	m.Reload()
+
+	// Open new-session while cursor is on my-sessions group (default position)
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+	// Step 0: title
+	for _, r := range "defaults-test" {
+		m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	// Step 1: accept pre-filled path (should be /opt/api from group default)
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	// Step 2: accept pre-selected tool (should be aider from group default)
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	// Step 3: no startup script
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	sessions, err := db.ListSessions(conn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found *db.Session
+	for i := range sessions {
+		if sessions[i].Title == "defaults-test" {
+			found = &sessions[i]
+			break
+		}
+	}
+	if found == nil {
+		t.Fatalf("session 'defaults-test' not created")
+	}
+	if found.ProjectPath != "/opt/api" {
+		t.Errorf("ProjectPath: got %q want %q", found.ProjectPath, "/opt/api")
+	}
+	if found.Tool != "aider" {
+		t.Errorf("Tool: got %q want %q", found.Tool, "aider")
 	}
 }
 
