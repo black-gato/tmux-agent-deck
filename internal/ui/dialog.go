@@ -61,6 +61,15 @@ func (m *Model) updateDialog(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if err := m.Reload(); err != nil {
 			m.err = err
 		}
+		if m.navigateToGroup != "" {
+			for i, item := range m.items {
+				if item.Kind == "group" && item.Group.Path == m.navigateToGroup {
+					m.cursor = i
+					break
+				}
+			}
+			m.navigateToGroup = ""
+		}
 	case tea.KeyBackspace:
 		if len(m.dialog.value) > 0 {
 			m.dialog.value = m.dialog.value[:len(m.dialog.value)-1]
@@ -128,7 +137,7 @@ func (m *Model) commitDialog() {
 			Expanded:    true,
 		}); err != nil {
 			if errors.Is(err, db.ErrGroupExists) {
-				m.err = fmt.Errorf("group %q already exists", val)
+				m.navigateToGroup = val
 			} else {
 				m.err = err
 			}
