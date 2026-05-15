@@ -6,6 +6,65 @@ Current repo status as of 2026-05-14: BUG-001 through BUG-004 are fixed in the c
 
 ---
 
+## BUG-005: idle detection uses stale output heuristics, so inactive sessions can remain `running`
+
+**Reported:** 2026-05-14
+**Status:** open
+**Severity:** medium (misleading status; weakens observability and waiting triage)
+
+### Symptom
+
+A tmux session can sit untouched for well over 30 seconds and still display as `running` instead of `idle`.
+
+Common example:
+
+1. The pane output contains text like `Thinking...`, `Running tests...`, or an old spinner glyph.
+2. The underlying process stops producing new output.
+3. Even after 30+ seconds, the session remains `running`.
+
+### Root cause
+
+Status detection in [internal/tmux/status.go](/Users/anthonymirville/Projects/tmux-agent-deck/.worktrees/feature-feedback/internal/tmux/status.go:56) is heuristic:
+
+1. If the current pane tail contains spinner characters or the substrings `Thinking` / `Running`, it returns `running` immediately.
+2. The idle fallback only triggers when none of those markers are present and `time.Since(lastChange) > 30*time.Second`.
+
+But `lastChange` in [internal/state/poller.go](/Users/anthonymirville/Projects/tmux-agent-deck/.worktrees/feature-feedback/internal/state/poller.go:145) is not the time of the last pane-output change. It is only updated when the derived status changes:
+
+```go
+if newStatus != s.Status {
+    p.setLastChange(s.ID, now)
+    ...
+}
+```
+
+As a result, stale pane text that still looks "running-ish" can pin the session in `running` indefinitely, and the 30-second rule is not a true inactivity timer.
+
+### Planned fix
+
+Track actual pane-output changes between polls and base idle detection on that signal instead of stale substrings alone.
+
+1. **`internal/state/poller.go`** — store the previous captured pane output (or a compact hash of it) per session.
+2. On each poll, compare the newly captured output to the previous value.
+3. Update a `lastOutputChange` timestamp only when the pane contents actually change.
+4. Pass that timestamp into status detection instead of the current status-transition timestamp.
+5. Keep prompt detection for `waiting`, but treat stale `Thinking` / `Running` text as historical output unless the pane is still changing.
+
+### Test plan
+
+- `internal/state/poller_test.go` — when pane output stops changing for more than 30 seconds, status becomes `idle` even if the tail still contains `Thinking` or `Running`.
+- `internal/state/poller_test.go` — when pane output continues changing between polls, status stays `running`.
+- `internal/tmux/status_test.go` — narrow status detection to prompt/running-marker interpretation only, without relying on stale text to suppress idle forever.
+
+### Files touched
+
+- `internal/state/poller.go`
+- `internal/state/poller_test.go`
+- `internal/tmux/status.go`
+- `internal/tmux/status_test.go`
+
+---
+
 ## BUG-004: pressing `C` on a non-waiting session surfaces an error instead of no-op
 
 **Reported:** 2026-05-13
