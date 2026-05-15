@@ -411,6 +411,51 @@ func TestPollerStoresContextPct(t *testing.T) {
 	}
 }
 
+func TestPollerMarksSessionIdleWhenOutputUnchanged(t *testing.T) {
+	// BUG-005: a session whose pane output has not changed for >30s should
+	// transition to idle, even if the tail still contains "Thinking" or a spinner.
+	conn := testutil.OpenTestDB(t)
+	current := time.Unix(1_700_000_000, 0)
+	db.CreateSession(conn, db.Session{
+		ID: "s1", Title: "stale", GroupPath: "g", TmuxSession: "tmux-s1",
+		ProjectPath: "/p", Tool: "claude", Status: "running", CreatedAt: current.Unix(),
+	})
+
+	stub := &stubTmux{output: "⠋ Thinking...", exists: true}
+	p := state.NewWithClock(conn, stub, notify.New(notify.Config{}), func() time.Time { return current })
+	p.PollOnce()
+
+	current = current.Add(31 * time.Second)
+	p.PollOnce()
+
+	s, _ := db.GetSession(conn, "s1")
+	if s.Status != "idle" {
+		t.Fatalf("status: got %q want idle", s.Status)
+	}
+}
+
+func TestPollerKeepsRunningWhenOutputKeepsChanging(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	current := time.Unix(1_700_000_000, 0)
+	db.CreateSession(conn, db.Session{
+		ID: "s1", Title: "active", GroupPath: "g", TmuxSession: "tmux-s1",
+		ProjectPath: "/p", Tool: "claude", Status: "running", CreatedAt: current.Unix(),
+	})
+
+	stub := &stubTmux{output: "⠋ Thinking...", exists: true}
+	p := state.NewWithClock(conn, stub, notify.New(notify.Config{}), func() time.Time { return current })
+	p.PollOnce()
+
+	current = current.Add(31 * time.Second)
+	stub.output = "⠙ Thinking..."
+	p.PollOnce()
+
+	s, _ := db.GetSession(conn, "s1")
+	if s.Status != "running" {
+		t.Fatalf("status: got %q want running", s.Status)
+	}
+}
+
 func TestPollerClearsContextPctWhenSessionStopped(t *testing.T) {
 	conn := testutil.OpenTestDB(t)
 	db.CreateSession(conn, db.Session{

@@ -53,7 +53,7 @@ func lastLine(s string) string {
 	return s
 }
 
-func DetectStatus(output string, lastChange time.Time, tool string) Status {
+func DetectStatus(output string, lastChange, now time.Time, tool string) Status {
 	trimmed := strings.TrimRight(output, " \t\r\n")
 
 	switch tool {
@@ -68,14 +68,19 @@ func DetectStatus(output string, lastChange time.Time, tool string) Status {
 		}
 	default: // "claude", "", and any other tool
 		ll := lastLine(trimmed)
-		// Shell prompts: last line ends with $ or #
 		if strings.HasSuffix(ll, "$") || strings.HasSuffix(ll, "#") {
 			return StatusWaiting
 		}
-		// claude-style prompt: last line is a standalone >
 		if ll == ">" {
 			return StatusWaiting
 		}
+	}
+
+	// lastChange is the time the pane output last changed. If the pane has been
+	// silent for >30s, treat it as idle even if the tail still contains stale
+	// "Thinking" / spinner text from a long-finished operation (BUG-005).
+	if now.Sub(lastChange) > 30*time.Second {
+		return StatusIdle
 	}
 
 	tail := output
@@ -89,10 +94,6 @@ func DetectStatus(output string, lastChange time.Time, tool string) Status {
 	}
 	if strings.Contains(tail, "Thinking") || strings.Contains(tail, "Running") {
 		return StatusRunning
-	}
-
-	if time.Since(lastChange) > 30*time.Second {
-		return StatusIdle
 	}
 
 	return StatusRunning

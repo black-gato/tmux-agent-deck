@@ -1,5 +1,7 @@
 # M5 Fleet Management Implementation Plan
 
+**Status: Complete** — all tasks implemented and verified. See `docs/superpowers/specs/2026-05-10-roadmap.md`.
+
 > This plan matches the current roadmap milestone ordering: M5 is Fleet Management.
 
 **Goal:** Add multi-select, bulk session actions, archive/restore, and tags so the TUI can manage larger fleets without attaching to each tmux session individually.

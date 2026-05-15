@@ -1,5 +1,7 @@
 # M6 Polish & Onboarding Implementation Plan
 
+**Status: Complete** — all tasks implemented and verified. See `docs/superpowers/specs/2026-05-10-roadmap.md`.
+
 **Goal:** Finish the roadmap by landing the polish layer that turns the app from "feature-complete" into "comfortable to live in": fast list filtering, discoverable keybindings, an onboarding empty state, configurable poll cadence, and a headless daemon mode for background alerting.
 
 **Roadmap source:** `docs/superpowers/specs/2026-05-10-roadmap.md` M6 section.

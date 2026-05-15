@@ -27,6 +27,7 @@ type Poller struct {
 	interval     time.Duration
 	mu           sync.RWMutex
 	lastChange   map[string]time.Time
+	lastOutput   map[string]string
 	waitingSince map[string]time.Time
 	contextPct   map[string]*int
 	done         chan struct{}
@@ -65,6 +66,7 @@ func NewWithClockInterval(conn *sql.DB, tc TmuxReader, notifier waitingNotifier,
 		now:          now,
 		interval:     interval,
 		lastChange:   make(map[string]time.Time),
+		lastOutput:   make(map[string]string),
 		waitingSince: make(map[string]time.Time),
 		contextPct:   make(map[string]*int),
 		done:         make(chan struct{}),
@@ -142,12 +144,11 @@ func (p *Poller) PollOnce() {
 		p.setContextPct(s.ID, tmux.ParseContextPct(out))
 
 		now := p.now()
-		lc := p.lastObservedChange(s.ID, now)
+		lc := p.observeOutput(s.ID, out, now)
 
-		newStatus := tmux.DetectStatus(out, lc, s.Tool)
+		newStatus := tmux.DetectStatus(out, lc, now, s.Tool)
 		p.updateWaitingState(s.ID, s.Status, newStatus, now)
 		if newStatus != s.Status {
-			p.setLastChange(s.ID, now)
 			if err := db.UpdateSessionStatus(p.conn, s.ID, newStatus); err != nil {
 				log.Printf("poller: update status %q: %v", s.ID, err)
 			}
@@ -225,6 +226,7 @@ func (p *Poller) clearSessionState(id string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	delete(p.lastChange, id)
+	delete(p.lastOutput, id)
 	delete(p.waitingSince, id)
 	delete(p.contextPct, id)
 }
@@ -251,21 +253,21 @@ func (p *Poller) ContextPctSnapshot() map[string]*int {
 	return snap
 }
 
-func (p *Poller) lastObservedChange(id string, now time.Time) time.Time {
+// observeOutput records the latest pane output for a session and returns the
+// timestamp of the last time the output actually changed. The returned time is
+// used by DetectStatus to decide whether stale "Thinking" / spinner markers
+// should still count as activity.
+func (p *Poller) observeOutput(id, out string, now time.Time) time.Time {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	lc, ok := p.lastChange[id]
-	if !ok {
+	prev, hadPrev := p.lastOutput[id]
+	if !hadPrev || prev != out {
+		p.lastOutput[id] = out
 		p.lastChange[id] = now
-		return now
+	} else if _, ok := p.lastChange[id]; !ok {
+		p.lastChange[id] = now
 	}
-	return lc
-}
-
-func (p *Poller) setLastChange(id string, now time.Time) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.lastChange[id] = now
+	return p.lastChange[id]
 }
 
 func (p *Poller) updateWaitingState(id, previousStatus, newStatus string, now time.Time) {

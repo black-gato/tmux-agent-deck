@@ -38,11 +38,12 @@ func TestParseContextPctDetectsPercentage(t *testing.T) {
 func intPtr(n int) *int { return &n }
 
 func TestDetectStatusWaiting(t *testing.T) {
+	now := time.Now()
 	for _, output := range []string{
 		"Some output\n> ",
 		"last line\n>",
 	} {
-		status := tmux.DetectStatus(output, time.Now(), "claude")
+		status := tmux.DetectStatus(output, now, now, "claude")
 		if status != tmux.StatusWaiting {
 			t.Errorf("output %q: got %q want %q", output, status, tmux.StatusWaiting)
 		}
@@ -50,13 +51,14 @@ func TestDetectStatusWaiting(t *testing.T) {
 }
 
 func TestDetectStatusRunning(t *testing.T) {
+	now := time.Now()
 	for _, output := range []string{
 		"⠋ Thinking...",
 		"⠙ Working...",
 		"● Running",
 		"Thinking about your request",
 	} {
-		status := tmux.DetectStatus(output, time.Now(), "claude")
+		status := tmux.DetectStatus(output, now, now, "claude")
 		if status != tmux.StatusRunning {
 			t.Errorf("output %q: got %q want running", output, status)
 		}
@@ -65,27 +67,47 @@ func TestDetectStatusRunning(t *testing.T) {
 
 func TestDetectStatusIdle(t *testing.T) {
 	output := "Some old output without a prompt"
-	lastChange := time.Now().Add(-31 * time.Second)
-	status := tmux.DetectStatus(output, lastChange, "claude")
+	now := time.Now()
+	lastChange := now.Add(-31 * time.Second)
+	status := tmux.DetectStatus(output, lastChange, now, "claude")
 	if status != tmux.StatusIdle {
 		t.Errorf("got %q want idle", status)
 	}
 }
 
+func TestDetectStatusStaleRunningMarkerBecomesIdle(t *testing.T) {
+	// BUG-005: stale "Thinking" / spinner text must not pin a session at running
+	// when the pane output has not changed in over 30 seconds.
+	now := time.Now()
+	lastChange := now.Add(-31 * time.Second)
+	for _, output := range []string{
+		"⠋ Thinking...",
+		"Thinking about your request",
+		"● Running tests",
+	} {
+		status := tmux.DetectStatus(output, lastChange, now, "claude")
+		if status != tmux.StatusIdle {
+			t.Errorf("stale output %q: got %q want idle", output, status)
+		}
+	}
+}
+
 func TestDetectStatusRecentActivityIsRunning(t *testing.T) {
+	now := time.Now()
 	output := "Some output without a prompt"
-	status := tmux.DetectStatus(output, time.Now(), "claude")
+	status := tmux.DetectStatus(output, now, now, "claude")
 	if status != tmux.StatusRunning {
 		t.Errorf("got %q want running (recent activity)", status)
 	}
 }
 
 func TestDetectStatusAiderWaiting(t *testing.T) {
+	now := time.Now()
 	for _, output := range []string{
 		"Some output\naider> ",
 		"Some output\naider>",
 	} {
-		status := tmux.DetectStatus(output, time.Now(), "aider")
+		status := tmux.DetectStatus(output, now, now, "aider")
 		if status != tmux.StatusWaiting {
 			t.Errorf("aider output %q: got %q want waiting", output, status)
 		}
@@ -93,21 +115,22 @@ func TestDetectStatusAiderWaiting(t *testing.T) {
 }
 
 func TestDetectStatusAiderPromptNotMatchedForClaude(t *testing.T) {
-	// "aider> " at end should NOT trigger waiting for claude tool
+	now := time.Now()
 	output := "Some output\naider> "
-	status := tmux.DetectStatus(output, time.Now(), "claude")
+	status := tmux.DetectStatus(output, now, now, "claude")
 	if status == tmux.StatusWaiting {
 		t.Errorf("aider> should not match waiting for claude tool")
 	}
 }
 
 func TestDetectStatusCopilotWaiting(t *testing.T) {
+	now := time.Now()
 	for _, output := range []string{
 		"Some output\n❯ ",
 		"Some output\n❯",
 		"Some output\n> ",
 	} {
-		status := tmux.DetectStatus(output, time.Now(), "copilot")
+		status := tmux.DetectStatus(output, now, now, "copilot")
 		if status != tmux.StatusWaiting {
 			t.Errorf("copilot output %q: got %q want waiting", output, status)
 		}
@@ -115,13 +138,14 @@ func TestDetectStatusCopilotWaiting(t *testing.T) {
 }
 
 func TestDetectStatusBashWaiting(t *testing.T) {
+	now := time.Now()
 	for _, output := range []string{
 		"user@host:~$ ",
 		"root@host:~# ",
 		"Some output\n> ",
 		"command output\nuser@host:~$ \n\n\n",
 	} {
-		status := tmux.DetectStatus(output, time.Now(), "")
+		status := tmux.DetectStatus(output, now, now, "")
 		if status != tmux.StatusWaiting {
 			t.Errorf("bash output %q: got %q want waiting", output, status)
 		}

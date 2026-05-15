@@ -1,5 +1,7 @@
 # M3 Conductors And macOS Alerts Implementation Plan
 
+**Status: Complete** — all tasks implemented and verified. See `docs/superpowers/specs/2026-05-10-roadmap.md`.
+
 > This plan matches the current roadmap milestone ordering: M3 is Conductors and macOS Alerts.
 
 **Goal:** Add group conductor ownership, conductor-targeted escalation, waiting digests, and tunable macOS notifications so waiting agents route attention to the right operator without noisy repeat alerts.

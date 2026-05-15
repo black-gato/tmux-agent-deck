@@ -2,14 +2,176 @@
 
 Tracked bugs in tmux-agent-deck. Newest first. Status: `open`, `in-progress`, `fixed`.
 
-Current repo status as of 2026-05-14: BUG-001 through BUG-004 are fixed in the current branch. Verified by inspecting the implementation and running `go test ./...`.
+Current repo status as of 2026-05-14: BUG-001 through BUG-005 are fixed in the current branch. BUG-006 through BUG-008 are open. Verified by inspecting the implementation and running `go test ./...`.
+
+---
+
+## BUG-008: tmux session names use opaque `ad-` prefix instead of readable `tma-<name>-<id>` convention
+
+**Reported:** 2026-05-14
+**Status:** open
+**Severity:** low (UX; tmux sessions are hard to identify outside the TUI)
+
+### Symptom
+
+When the TUI starts a tmux session it is named `ad-<first 8 chars of UUID>`, e.g. `ad-3f7a1c2b`. Inside the TUI this is fine — sessions are identified by their title. But if the user lists tmux sessions directly (`tmux ls`) or attaches from outside the TUI, the names are opaque and impossible to associate with the session title without cross-referencing the DB.
+
+### Root cause
+
+`internal/ui/app.go:901` in `ensureStarted`:
+
+```go
+tmuxName := fmt.Sprintf("ad-%s", s.ID[:8])
+```
+
+The name is derived solely from the internal UUID, discarding the human-readable title entirely.
+
+### Expected behaviour
+
+Tmux session names should follow the convention `tma-<session-name>-<random-id>` so that:
+
+1. The `tma-` prefix makes all managed sessions identifiable as belonging to tmux-agent-deck.
+2. The session title (slugified) is visible in `tmux ls` output.
+3. The random suffix ensures uniqueness even when two sessions share the same title — no collision handling needed.
+
+Example: a session titled `"api worker"` → `tma-api-worker-3f7a1c2b`.
+
+### Planned fix
+
+1. **`internal/ui/app.go` `ensureStarted`** — replace the name derivation:
+   ```go
+   tmuxName := fmt.Sprintf("tma-%s-%s", slugify(s.Title), s.ID[:8])
+   ```
+2. Add a `slugify` helper that lowercases, replaces non-alphanumeric runs with `-`, and trims leading/trailing dashes. Keep it to a reasonable max length (e.g. 40 chars for the title portion) to stay within tmux session name limits.
+3. No DB migration needed — `tmux_session` is set at start time, not stored in a unique-constrained column.
+
+### Test plan
+
+- `internal/ui/app_test.go` — `ensureStarted` on a new session produces a tmux name matching `tma-<slug>-<8hex>`.
+- `internal/ui/app_test.go` — two sessions with the same title each get distinct tmux names (different ID suffix).
+- Existing `ensureStarted` tests for the "already running" path continue to pass.
+
+### Files touched
+
+- `internal/ui/app.go`
+- `internal/ui/app_test.go`
+
+---
+
+## BUG-007: project path field in new-session dialog has no tab completion
+
+**Reported:** 2026-05-14
+**Status:** open
+**Severity:** low (UX paper cut; users can still paste or type the full path)
+
+### Symptom
+
+In the new-session flow (`n`), step 2 prompts for `Project path:`. Pressing Tab in that field does nothing — no path is completed, no candidate list is shown, no feedback at all. Shell users expect Tab to expand partial paths against the filesystem.
+
+### Reproduction
+
+1. Press `n` to start a new session.
+2. Enter a title, press Enter to advance to the project path step.
+3. Type a partial path such as `~/Pro` and press Tab.
+4. Observe that nothing happens; `~/Pro` stays unchanged.
+
+### Root cause
+
+`internal/ui/dialog.go:90` `updateDialog` has no branch for `tea.KeyTab` when `mode == "new-session" && m.dialog.step == 1`. Tab handling only exists for:
+
+- `broadcast` mode — toggles the scope flag (line 96).
+- `new-session` step 2 (tool selection) — left/right arrows cycle options, Tab is unhandled.
+
+For the path step, `tea.KeyTab` arrives with no `msg.Runes`, falls through to the `default` branch at line 141, and contributes nothing to `m.dialog.value`. The keypress is silently dropped.
+
+### Expected behaviour
+
+In the project path field:
+
+- Single Tab with one matching filesystem entry — complete `m.dialog.value` to the match, appending `/` if it resolves to a directory.
+- Single Tab with multiple matches — extend `m.dialog.value` to the longest common prefix.
+- Second Tab with multiple matches — render the candidate list above the prompt.
+- No matches — no-op.
+
+`~` and `$VAR` should be expanded the same way `expandPath` already does at commit time.
+
+### Planned fix
+
+1. **`internal/ui/dialog.go`** — branch in `updateDialog` for the path step on `tea.KeyTab`. Split current value into directory + prefix, expand `~` / env vars, call `os.ReadDir` on the directory, filter entries by prefix.
+2. New helper (likely `completePath`) returns the completed value and an optional candidate list; pure function so it can be unit-tested without a tmux client.
+3. `dialogState` gains a `candidates []string` field rendered by `renderDialog` when populated.
+4. Consider applying the same machinery to the `move` and `new-group` dialogs, but completing against in-DB group paths rather than the filesystem — out of scope for this bug; track separately if desired.
+
+### Test plan
+
+- `internal/ui/dialog_test.go` — tab on `~/` in a temp HOME with a known directory layout expands to the longest common prefix; second tab populates `candidates`.
+- `internal/ui/dialog_test.go` — tab in non-path dialogs (e.g. rename, edit-notes) remains a no-op (regression guard).
+- Existing new-session tests continue to pass; commit path still uses `expandPath`.
+
+### Files touched
+
+- `internal/ui/dialog.go`
+- `internal/ui/dialog_test.go` (new or extend existing)
+
+---
+
+## BUG-006: `--notify-style` and `--notify-quiet` flags have no usage documentation
+
+**Reported:** 2026-05-14
+**Status:** open
+**Severity:** low (discoverability; no functional impact)
+
+### Symptom
+
+Running `tmux-agent-deck --help` shows:
+
+```
+--notify-style string   Notification style: waiting, conductor, digest (default "waiting")
+--notify-quiet string   Quiet hours / cooldown policy
+```
+
+Neither flag explains what the values do or what format `--notify-quiet` expects. A user who has never read the source code cannot tell what `conductor` or `digest` mean, or how to write a valid quiet policy string.
+
+### Root cause
+
+`cmd/root.go:167-168` registers both flags with single-line usage strings:
+
+```go
+rootCmd.PersistentFlags().StringVar(&notifyStyle, "notify-style", "waiting", "Notification style: waiting, conductor, digest")
+rootCmd.PersistentFlags().StringVar(&notifyQuiet, "notify-quiet", "", "Quiet hours / cooldown policy")
+```
+
+Cobra renders the usage string verbatim in `--help` output. There is no secondary long-form help, man page, or docs site that covers these flags.
+
+### Expected behaviour
+
+`--help` should explain each `--notify-style` value and show a valid `--notify-quiet` format example, e.g.:
+
+```
+--notify-style string   Notification routing style:
+                          waiting    alert per session the moment it goes waiting (default)
+                          conductor  alert names the group conductor: "lead: worker is waiting"
+                          digest     one combined alert per poll cycle listing all waiting workers in the group
+--notify-quiet string   Quiet hours and cooldown policy (comma-separated key=value):
+                          cooldown=5m          suppress duplicate alerts within this duration
+                          hours=22:00-08:00    suppress all alerts during this time window
+                          example: --notify-quiet "cooldown=5m,hours=22:00-08:00"
+```
+
+### Fix
+
+Expand the usage strings in `cmd/root.go` `init()` to multi-line backtick strings. Cobra passes them through unchanged, so newlines and indentation render correctly in `--help`.
+
+### Files touched
+
+- `cmd/root.go`
 
 ---
 
 ## BUG-005: idle detection uses stale output heuristics, so inactive sessions can remain `running`
 
 **Reported:** 2026-05-14
-**Status:** open
+**Status:** fixed
 **Severity:** medium (misleading status; weakens observability and waiting triage)
 
 ### Symptom
@@ -40,21 +202,20 @@ if newStatus != s.Status {
 
 As a result, stale pane text that still looks "running-ish" can pin the session in `running` indefinitely, and the 30-second rule is not a true inactivity timer.
 
-### Planned fix
+### Resolution
 
-Track actual pane-output changes between polls and base idle detection on that signal instead of stale substrings alone.
+`lastChange` now tracks the time the pane output last *changed* rather than the time of the last status transition.
 
-1. **`internal/state/poller.go`** — store the previous captured pane output (or a compact hash of it) per session.
-2. On each poll, compare the newly captured output to the previous value.
-3. Update a `lastOutputChange` timestamp only when the pane contents actually change.
-4. Pass that timestamp into status detection instead of the current status-transition timestamp.
-5. Keep prompt detection for `waiting`, but treat stale `Thinking` / `Running` text as historical output unless the pane is still changing.
+1. **`internal/state/poller.go`** — new `lastOutput map[string]string` stores the previous capture per session. `observeOutput` replaces `lastObservedChange` / `setLastChange`: on each poll it compares the new capture to the prior one and only advances `lastChange` when they differ. The stale "update lastChange on status transition" call after `UpdateSessionStatus` is removed.
+2. **`internal/tmux/status.go`** — `DetectStatus` takes an extra `now time.Time` parameter and computes `now.Sub(lastChange)` (the poller's injected clock) instead of `time.Since(lastChange)`. The idle check is moved *before* the spinner / `Thinking` / `Running` heuristics, so stale running markers on a silent pane resolve to `idle` after 30s.
+3. Waiting prompt detection is unchanged — a live prompt still wins regardless of how long the pane has been silent.
 
 ### Test plan
 
-- `internal/state/poller_test.go` — when pane output stops changing for more than 30 seconds, status becomes `idle` even if the tail still contains `Thinking` or `Running`.
-- `internal/state/poller_test.go` — when pane output continues changing between polls, status stays `running`.
-- `internal/tmux/status_test.go` — narrow status detection to prompt/running-marker interpretation only, without relying on stale text to suppress idle forever.
+- `internal/tmux/status_test.go` `TestDetectStatusStaleRunningMarkerBecomesIdle` — stale spinner / `Thinking` / `Running` text with a 31s-old `lastChange` returns `idle`.
+- `internal/state/poller_test.go` `TestPollerMarksSessionIdleWhenOutputUnchanged` — two polls 31s apart with identical "⠋ Thinking..." output transitions status to `idle`.
+- `internal/state/poller_test.go` `TestPollerKeepsRunningWhenOutputKeepsChanging` — two polls 31s apart with changing spinner output keep status at `running`.
+- All existing `DetectStatus` call sites updated to the new 4-arg signature; `go test ./...` passes.
 
 ### Files touched
 
