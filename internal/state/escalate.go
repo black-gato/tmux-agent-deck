@@ -8,19 +8,18 @@ import (
 )
 
 func escalationMessage(session db.Session, lastOutput string) string {
-	lines := []string{
+	parts := []string{
 		fmt.Sprintf("Escalation from %s", session.Title),
 		fmt.Sprintf("Status: %s", session.Status),
 	}
 	if session.Notes != "" {
-		lines = append(lines, fmt.Sprintf("Notes: %s", session.Notes))
+		parts = append(parts, fmt.Sprintf("Notes: %s", session.Notes))
 	}
-	context := strings.Join(tailLines(lastOutput, 3), "\n")
+	context := strings.Join(tailLines(lastOutput, 3), " | ")
 	if strings.TrimSpace(context) != "" {
-		lines = append(lines, "Current issue context:")
-		lines = append(lines, context)
+		parts = append(parts, fmt.Sprintf("Context: %s", context))
 	}
-	return strings.Join(lines, "\n")
+	return strings.Join(parts, " | ") + "\n"
 }
 
 func tailLines(output string, n int) []string {

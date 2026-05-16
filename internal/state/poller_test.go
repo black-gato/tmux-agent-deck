@@ -604,7 +604,7 @@ func TestAutoEscalateSendsToConductorOnWaitingTransition(t *testing.T) {
 	if !strings.Contains(got.keys, "Notes: stuck on auth") {
 		t.Errorf("keys missing notes: %q", got.keys)
 	}
-	if !strings.Contains(got.keys, "Current issue context:") {
+	if !strings.Contains(got.keys, "Context:") {
 		t.Errorf("keys missing context section: %q", got.keys)
 	}
 }
