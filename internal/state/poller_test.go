@@ -537,3 +537,209 @@ func TestPollerClearsContextPctWhenSessionStopped(t *testing.T) {
 		t.Fatalf("expected nil context pct after session stopped, got %d", *snap["s1"])
 	}
 }
+
+type stubSender struct {
+	calls []sentKeysCall
+}
+
+type sentKeysCall struct {
+	session string
+	pane    int
+	keys    string
+}
+
+func (s *stubSender) SendKeys(session string, pane int, keys string) error {
+	s.calls = append(s.calls, sentKeysCall{session, pane, keys})
+	return nil
+}
+
+type smartStubTmux struct {
+	exists          bool
+	conductorOutput string
+	workerOutput    string
+	activity        time.Time
+}
+
+func (s *smartStubTmux) CapturePaneOutput(name string) (string, error) {
+	if strings.Contains(name, "conductor") {
+		return s.conductorOutput, nil
+	}
+	return s.workerOutput, nil
+}
+
+func (s *smartStubTmux) SessionExists(name string) (bool, error) {
+	return s.exists, nil
+}
+
+func (s *smartStubTmux) SessionActivity(name string) (time.Time, error) {
+	return s.activity, nil
+}
+
+func TestAutoEscalateSendsToCondutorOnWaitingTransition(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	now := time.Now().Unix()
+	db.CreateGroup(conn, db.Group{Path: "work", Name: "work", ConductorSessionID: "conductor"})
+	db.CreateSession(conn, db.Session{
+		ID: "conductor", Title: "conductor", GroupPath: "work", TmuxSession: "tmux-conductor",
+		ProjectPath: "/p", Tool: "claude", Status: "running", CreatedAt: now,
+	})
+	db.CreateSession(conn, db.Session{
+		ID: "worker", Title: "worker", GroupPath: "work", TmuxSession: "tmux-worker",
+		ProjectPath: "/p", Tool: "claude", Status: "running", CreatedAt: now, Notes: "stuck on auth",
+	})
+
+	stub := &smartStubTmux{
+		conductorOutput: "Thinking about this...\n",
+		workerOutput:    "line1\nline2\nline3\n> ",
+		exists:          true,
+	}
+	sender := &stubSender{}
+	p := state.New(conn, stub)
+	p.SetSender(sender)
+	p.PollOnce()
+
+	if len(sender.calls) != 1 {
+		t.Fatalf("expected 1 SendKeys call, got %d", len(sender.calls))
+	}
+	got := sender.calls[0]
+	if got.session != "tmux-conductor" {
+		t.Errorf("session: got %q want %q", got.session, "tmux-conductor")
+	}
+	if got.pane != 0 {
+		t.Errorf("pane: got %d want 0", got.pane)
+	}
+	if !strings.Contains(got.keys, "Escalation from worker") {
+		t.Errorf("keys missing escalation header: %q", got.keys)
+	}
+	if !strings.Contains(got.keys, "Notes: stuck on auth") {
+		t.Errorf("keys missing notes: %q", got.keys)
+	}
+	if !strings.Contains(got.keys, "Current issue context:") {
+		t.Errorf("keys missing context section: %q", got.keys)
+	}
+}
+
+func TestAutoEscalateFiresOncePerTransition(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	now := time.Now().Unix()
+	db.CreateGroup(conn, db.Group{Path: "work", Name: "work", ConductorSessionID: "conductor"})
+	db.CreateSession(conn, db.Session{
+		ID: "conductor", Title: "conductor", GroupPath: "work", TmuxSession: "tmux-conductor",
+		ProjectPath: "/p", Tool: "claude", Status: "running", CreatedAt: now,
+	})
+	db.CreateSession(conn, db.Session{
+		ID: "worker", Title: "worker", GroupPath: "work", TmuxSession: "tmux-worker",
+		ProjectPath: "/p", Tool: "claude", Status: "running", CreatedAt: now,
+	})
+
+	stub := &smartStubTmux{
+		conductorOutput: "Thinking about this...\n",
+		workerOutput:    "Some output\n> ",
+		exists:          true,
+	}
+	sender := &stubSender{}
+	p := state.New(conn, stub)
+	p.SetSender(sender)
+	p.PollOnce() // running → waiting, should fire
+	p.PollOnce() // still waiting, should NOT fire again
+
+	if len(sender.calls) != 1 {
+		t.Fatalf("expected 1 SendKeys call across 2 polls, got %d", len(sender.calls))
+	}
+}
+
+func TestAutoEscalateSkipsWhenSenderNil(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	now := time.Now().Unix()
+	db.CreateGroup(conn, db.Group{Path: "work", Name: "work", ConductorSessionID: "conductor"})
+	db.CreateSession(conn, db.Session{
+		ID: "conductor", Title: "conductor", GroupPath: "work", TmuxSession: "tmux-conductor",
+		ProjectPath: "/p", Tool: "claude", Status: "running", CreatedAt: now,
+	})
+	db.CreateSession(conn, db.Session{
+		ID: "worker", Title: "worker", GroupPath: "work", TmuxSession: "tmux-worker",
+		ProjectPath: "/p", Tool: "claude", Status: "running", CreatedAt: now,
+	})
+
+	stub := &smartStubTmux{
+		conductorOutput: "Thinking about this...\n",
+		workerOutput:    "Some output\n> ",
+		exists:          true,
+	}
+	p := state.New(conn, stub) // no SetSender call
+	p.PollOnce()               // should not panic or send anything
+}
+
+func TestAutoEscalateSkipsWhenNoConductor(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	now := time.Now().Unix()
+	db.CreateGroup(conn, db.Group{Path: "work", Name: "work"}) // no ConductorSessionID
+	db.CreateSession(conn, db.Session{
+		ID: "worker", Title: "worker", GroupPath: "work", TmuxSession: "tmux-worker",
+		ProjectPath: "/p", Tool: "claude", Status: "running", CreatedAt: now,
+	})
+
+	stub := &smartStubTmux{
+		workerOutput: "Some output\n> ",
+		exists:       true,
+	}
+	sender := &stubSender{}
+	p := state.New(conn, stub)
+	p.SetSender(sender)
+	p.PollOnce()
+
+	if len(sender.calls) != 0 {
+		t.Fatalf("expected 0 SendKeys calls when no conductor, got %d", len(sender.calls))
+	}
+}
+
+func TestAutoEscalateSkipsWhenSessionIsConductor(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	now := time.Now().Unix()
+	db.CreateGroup(conn, db.Group{Path: "work", Name: "work", ConductorSessionID: "conductor"})
+	db.CreateSession(conn, db.Session{
+		ID: "conductor", Title: "conductor", GroupPath: "work", TmuxSession: "tmux-conductor",
+		ProjectPath: "/p", Tool: "claude", Status: "running", CreatedAt: now,
+	})
+
+	stub := &smartStubTmux{
+		conductorOutput: "Some output\n> ",
+		exists:          true,
+	}
+	sender := &stubSender{}
+	p := state.New(conn, stub)
+	p.SetSender(sender)
+	p.PollOnce() // conductor itself transitions to waiting — should not self-escalate
+
+	if len(sender.calls) != 0 {
+		t.Fatalf("expected 0 SendKeys calls when conductor is the waiting session, got %d", len(sender.calls))
+	}
+}
+
+func TestAutoEscalateSkipsWhenConductorNotRunning(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	now := time.Now().Unix()
+	db.CreateGroup(conn, db.Group{Path: "work", Name: "work", ConductorSessionID: "conductor"})
+	db.CreateSession(conn, db.Session{
+		ID: "conductor", Title: "conductor", GroupPath: "work", TmuxSession: "tmux-conductor",
+		ProjectPath: "/p", Tool: "claude", Status: "idle", CreatedAt: now,
+	})
+	db.CreateSession(conn, db.Session{
+		ID: "worker", Title: "worker", GroupPath: "work", TmuxSession: "tmux-worker",
+		ProjectPath: "/p", Tool: "claude", Status: "running", CreatedAt: now,
+	})
+
+	stub := &smartStubTmux{
+		conductorOutput: "Waiting for input\n> ",
+		workerOutput:    "Some output\n> ",
+		exists:          true,
+	}
+	sender := &stubSender{}
+	p := state.New(conn, stub)
+	p.SetSender(sender)
+	p.PollOnce()
+
+	if len(sender.calls) != 0 {
+		t.Fatalf("expected 0 SendKeys calls when conductor not running, got %d", len(sender.calls))
+	}
+}
