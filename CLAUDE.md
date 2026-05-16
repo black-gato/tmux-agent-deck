@@ -1,3 +1,7 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
 # tmux-agent-deck
 
 A terminal UI for managing multiple AI coding agent sessions in tmux, organized into nested groups.
@@ -95,16 +99,31 @@ This project uses a brainstorm → spec → plan → implement cycle:
 - All tests in `*_test.go` files using `package <pkg>_test` (black-box)
 - Integration tests use `testutil.OpenTestDB(t)` — never `:memory:` directly
 
-## Running Tests
+## Commands
 
+Build:
+```bash
+go build -o tmux-agent-deck .
+```
+
+Run all unit tests:
 ```bash
 go test ./...
 ```
 
-## Building
-
+Run a single test:
 ```bash
-go build -o tmux-agent-deck .
+go test ./internal/ui/ -run TestBuildTree
+```
+
+Run e2e tests (requires tmux on PATH; builds the binary automatically):
+```bash
+go test -tags e2e ./test/e2e/
+```
+
+Vet:
+```bash
+go vet ./...
 ```
 
 ## Current Feature Set
