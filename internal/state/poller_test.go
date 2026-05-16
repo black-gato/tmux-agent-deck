@@ -698,13 +698,13 @@ func TestAutoEscalateSkipsWhenSessionIsConductor(t *testing.T) {
 	}
 }
 
-func TestAutoEscalateSkipsWhenConductorNotRunning(t *testing.T) {
+func TestAutoEscalateSkipsWhenConductorUnavailable(t *testing.T) {
 	conn := testutil.OpenTestDB(t)
 	now := time.Now().Unix()
 	db.CreateGroup(conn, db.Group{Path: "work", Name: "work", ConductorSessionID: "conductor"})
 	db.CreateSession(conn, db.Session{
-		ID: "conductor", Title: "conductor", GroupPath: "work", TmuxSession: "tmux-conductor",
-		ProjectPath: "/p", Tool: "claude", Status: "idle", CreatedAt: now,
+		ID: "conductor", Title: "conductor", GroupPath: "work", TmuxSession: "",
+		ProjectPath: "/p", Tool: "claude", Status: "stopped", CreatedAt: now,
 	})
 	db.CreateSession(conn, db.Session{
 		ID: "worker", Title: "worker", GroupPath: "work", TmuxSession: "tmux-worker",
@@ -718,6 +718,6 @@ func TestAutoEscalateSkipsWhenConductorNotRunning(t *testing.T) {
 	p.PollOnce()
 
 	if len(sender.calls) != 0 {
-		t.Fatalf("expected 0 SendKeys calls when conductor not running, got %d", len(sender.calls))
+		t.Fatalf("expected 0 SendKeys calls when conductor unavailable, got %d", len(sender.calls))
 	}
 }

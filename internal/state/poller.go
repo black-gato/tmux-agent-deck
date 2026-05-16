@@ -244,8 +244,8 @@ func (p *Poller) autoEscalate(session db.Session, output string) {
 	if conductor.ID == session.ID {
 		return
 	}
-	if conductor.Status != tmux.StatusRunning || conductor.TmuxSession == "" {
-		log.Printf("poller: auto-escalate %q: conductor %q not running", session.ID, conductor.Title)
+	if conductor.TmuxSession == "" || conductor.Status == tmux.StatusStopped || conductor.Status == tmux.StatusError {
+		log.Printf("poller: auto-escalate %q: conductor %q unavailable", session.ID, conductor.Title)
 		return
 	}
 	if err := p.sender.SendKeys(conductor.TmuxSession, 0, escalationMessage(session, output)); err != nil {
