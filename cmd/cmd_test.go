@@ -59,6 +59,28 @@ func TestListAcceptsNotifyFlags(t *testing.T) {
 	}
 }
 
+func TestHelpDocumentsNotifyFlags(t *testing.T) {
+	dbPath := t.TempDir() + "/test.db"
+	t.Setenv("AGENT_DECK_DB", dbPath)
+
+	var out bytes.Buffer
+	if err := cmd.RunWith([]string{"--help"}, &out); err != nil {
+		t.Fatalf("help: %v", err)
+	}
+	help := out.String()
+	for _, want := range []string{
+		"waiting    alert per session",
+		"conductor  alert names the group conductor",
+		"digest     one combined alert",
+		"cooldown=5m",
+		"hours=22:00-08:00",
+	} {
+		if !bytes.Contains([]byte(help), []byte(want)) {
+			t.Fatalf("help missing %q:\n%s", want, help)
+		}
+	}
+}
+
 func TestGroupCreateDuplicateShowsFriendlyError(t *testing.T) {
 	dbPath := t.TempDir() + "/test.db"
 	t.Setenv("AGENT_DECK_DB", dbPath)

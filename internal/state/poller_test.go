@@ -12,12 +12,16 @@ import (
 )
 
 type stubTmux struct {
-	output string
-	exists bool
+	output   string
+	exists   bool
+	activity time.Time
 }
 
 func (s *stubTmux) CapturePaneOutput(name string) (string, error) { return s.output, nil }
 func (s *stubTmux) SessionExists(name string) (bool, error)       { return s.exists, nil }
+func (s *stubTmux) SessionActivity(name string) (time.Time, error) {
+	return s.activity, nil
+}
 
 func TestPollerUpdatesStatusToWaiting(t *testing.T) {
 	conn := testutil.OpenTestDB(t)
@@ -159,6 +163,9 @@ func (s *countingStub) CapturePaneOutput(name string) (string, error) {
 	return "", nil
 }
 func (s *countingStub) SessionExists(name string) (bool, error) { return true, nil }
+func (s *countingStub) SessionActivity(name string) (time.Time, error) {
+	return time.Time{}, nil
+}
 
 type recordingNotifier struct {
 	enabled bool
@@ -453,6 +460,60 @@ func TestPollerKeepsRunningWhenOutputKeepsChanging(t *testing.T) {
 	s, _ := db.GetSession(conn, "s1")
 	if s.Status != "running" {
 		t.Fatalf("status: got %q want running", s.Status)
+	}
+}
+
+func TestPollerMarksOldSessionIdleOnFirstPoll(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	current := time.Unix(1_700_000_000, 0)
+	db.CreateSession(conn, db.Session{
+		ID: "s1", Title: "old", GroupPath: "g", TmuxSession: "tmux-s1",
+		ProjectPath: "/p", Tool: "claude", Status: "running", CreatedAt: current.Add(-48 * time.Hour).Unix(),
+	})
+
+	stub := &stubTmux{output: "Thinking about your request", exists: true, activity: current.Add(-48 * time.Hour)}
+	p := state.NewWithClock(conn, stub, notify.New(notify.Config{}), func() time.Time { return current })
+	p.PollOnce()
+
+	s, _ := db.GetSession(conn, "s1")
+	if s.Status != "idle" {
+		t.Fatalf("status: got %q want idle", s.Status)
+	}
+}
+
+func TestPollerKeepsRecentlyActiveSessionRunningOnFirstPoll(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	current := time.Unix(1_700_000_000, 0)
+	db.CreateSession(conn, db.Session{
+		ID: "s1", Title: "recent", GroupPath: "g", TmuxSession: "tmux-s1",
+		ProjectPath: "/p", Tool: "claude", Status: "running", CreatedAt: current.Unix(),
+	})
+
+	stub := &stubTmux{output: "Thinking about your request", exists: true, activity: current.Add(-5 * time.Second)}
+	p := state.NewWithClock(conn, stub, notify.New(notify.Config{}), func() time.Time { return current })
+	p.PollOnce()
+
+	s, _ := db.GetSession(conn, "s1")
+	if s.Status != "running" {
+		t.Fatalf("status: got %q want running", s.Status)
+	}
+}
+
+func TestPollerKeepsOldPromptWaitingOnFirstPoll(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	current := time.Unix(1_700_000_000, 0)
+	db.CreateSession(conn, db.Session{
+		ID: "s1", Title: "prompt", GroupPath: "g", TmuxSession: "tmux-s1",
+		ProjectPath: "/p", Tool: "claude", Status: "running", CreatedAt: current.Add(-48 * time.Hour).Unix(),
+	})
+
+	stub := &stubTmux{output: "Done\n> ", exists: true, activity: current.Add(-48 * time.Hour)}
+	p := state.NewWithClock(conn, stub, notify.New(notify.Config{}), func() time.Time { return current })
+	p.PollOnce()
+
+	s, _ := db.GetSession(conn, "s1")
+	if s.Status != "waiting" {
+		t.Fatalf("status: got %q want waiting", s.Status)
 	}
 }
 

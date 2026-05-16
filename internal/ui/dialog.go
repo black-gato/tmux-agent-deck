@@ -31,6 +31,7 @@ func expandPath(p string) string {
 }
 
 func (m *Model) advanceNewSessionStep() {
+	m.clearDialogCandidates()
 	switch m.dialog.step {
 	case 0:
 		val := strings.TrimSpace(m.dialog.value)
@@ -60,11 +61,14 @@ type dialogState struct {
 	scope       bool
 	scopeLabels [2]string
 	// multi-step new-session flow
-	step        int
-	savedTitle  string
-	savedPath   string
-	toolOptions []string
-	toolIdx     int
+	step              int
+	savedTitle        string
+	savedPath         string
+	toolOptions       []string
+	toolIdx           int
+	candidates        []string
+	candidatesFor     string
+	candidatesVisible bool
 }
 
 func newDialogState(prompt string) dialogState {
@@ -112,6 +116,10 @@ func (m *Model) updateDialog(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 	}
+	if m.mode == "new-session" && m.dialog.step == 1 && msg.Type == tea.KeyTab {
+		m.completeDialogPath()
+		return m, nil
+	}
 	switch msg.Type {
 	case tea.KeyEsc, tea.KeyCtrlC:
 		m.mode = ""
@@ -138,9 +146,11 @@ func (m *Model) updateDialog(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if len(m.dialog.value) > 0 {
 			m.dialog.value = m.dialog.value[:len(m.dialog.value)-1]
 		}
+		m.clearDialogCandidates()
 	default:
 		if len(msg.Runes) > 0 {
 			m.dialog.value += string(msg.Runes)
+			m.clearDialogCandidates()
 		}
 	}
 	return m, nil
@@ -173,7 +183,101 @@ func (m *Model) renderDialog() string {
 		}
 		return m.dialog.prompt + "\n← → to select:  " + strings.Join(parts, "  ")
 	}
+	if m.mode == "new-session" && m.dialog.step == 1 && m.dialog.candidatesVisible && len(m.dialog.candidates) > 0 {
+		return strings.Join(m.dialog.candidates, "  ") + "\n" + m.dialog.prompt + "\n> " + m.dialog.value
+	}
 	return m.dialog.prompt + "\n> " + m.dialog.value
+}
+
+func (m *Model) completeDialogPath() {
+	completed, candidates := completePath(m.dialog.value)
+	if len(candidates) == 0 {
+		m.clearDialogCandidates()
+		return
+	}
+	if len(candidates) == 1 {
+		m.dialog.value = completed
+		m.clearDialogCandidates()
+		return
+	}
+	if completed != m.dialog.value {
+		m.dialog.value = completed
+		m.dialog.candidates = candidates
+		m.dialog.candidatesFor = completed
+		m.dialog.candidatesVisible = false
+		return
+	}
+	if m.dialog.candidatesFor == m.dialog.value {
+		m.dialog.candidatesVisible = true
+		return
+	}
+	m.dialog.candidates = candidates
+	m.dialog.candidatesFor = m.dialog.value
+	m.dialog.candidatesVisible = false
+}
+
+func (m *Model) clearDialogCandidates() {
+	m.dialog.candidates = nil
+	m.dialog.candidatesFor = ""
+	m.dialog.candidatesVisible = false
+}
+
+func completePath(input string) (string, []string) {
+	dirPart, prefix := splitPathInput(input)
+	readDir := dirPart
+	if readDir == "" {
+		readDir = "."
+	}
+	entries, err := os.ReadDir(expandPath(readDir))
+	if err != nil {
+		return input, nil
+	}
+	var matches []string
+	for _, entry := range entries {
+		name := entry.Name()
+		if !strings.HasPrefix(name, prefix) {
+			continue
+		}
+		if entry.IsDir() {
+			name += string(filepath.Separator)
+		}
+		matches = append(matches, name)
+	}
+	if len(matches) == 0 {
+		return input, nil
+	}
+	if len(matches) == 1 {
+		return dirPart + matches[0], matches
+	}
+	common := longestCommonPrefix(matches)
+	if common == "" {
+		return input, matches
+	}
+	return dirPart + common, matches
+}
+
+func splitPathInput(input string) (string, string) {
+	idx := strings.LastIndex(input, string(filepath.Separator))
+	if idx == -1 {
+		return "", input
+	}
+	return input[:idx+1], input[idx+1:]
+}
+
+func longestCommonPrefix(values []string) string {
+	if len(values) == 0 {
+		return ""
+	}
+	prefix := values[0]
+	for _, value := range values[1:] {
+		for !strings.HasPrefix(value, prefix) {
+			if prefix == "" {
+				return ""
+			}
+			prefix = prefix[:len(prefix)-1]
+		}
+	}
+	return prefix
 }
 
 func (m *Model) commitDialog() {

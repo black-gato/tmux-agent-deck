@@ -101,6 +101,12 @@ func resetRootOptions() {
 	notifyQuiet = ""
 	pollInterval = time.Second
 	headlessMode = false
+	_ = rootCmd.PersistentFlags().Set("notify", "false")
+	_ = rootCmd.PersistentFlags().Set("notify-style", "waiting")
+	_ = rootCmd.PersistentFlags().Set("notify-quiet", "")
+	_ = rootCmd.PersistentFlags().Set("poll", time.Second.String())
+	_ = rootCmd.PersistentFlags().Set("headless", "false")
+	_ = rootCmd.Flags().Set("help", "false")
 }
 
 func runRoot(ctx context.Context, conn *sql.DB) error {
@@ -164,8 +170,14 @@ func launchHeadless(ctx context.Context, conn *sql.DB, tc tmux.ClientIface) erro
 
 func init() {
 	rootCmd.PersistentFlags().BoolVar(&notifyEnabled, "notify", false, "Enable desktop notifications")
-	rootCmd.PersistentFlags().StringVar(&notifyStyle, "notify-style", "waiting", "Notification style: waiting, conductor, digest")
-	rootCmd.PersistentFlags().StringVar(&notifyQuiet, "notify-quiet", "", "Quiet hours / cooldown policy")
+	rootCmd.PersistentFlags().StringVar(&notifyStyle, "notify-style", "waiting", `Notification routing style:
+  waiting    alert per session the moment it goes waiting
+  conductor  alert names the group conductor
+  digest     one combined alert per poll cycle for waiting workers`)
+	rootCmd.PersistentFlags().StringVar(&notifyQuiet, "notify-quiet", "", `Quiet hours and cooldown policy (comma-separated key=value):
+  cooldown=5m        suppress duplicate alerts within this duration
+  hours=22:00-08:00  suppress all alerts during this time window
+  example: --notify-quiet "cooldown=5m,hours=22:00-08:00"`)
 	rootCmd.PersistentFlags().DurationVar(&pollInterval, "poll", time.Second, "Poll interval")
 	rootCmd.PersistentFlags().BoolVar(&headlessMode, "headless", false, "Run the poller without launching the TUI")
 }

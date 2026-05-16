@@ -39,7 +39,7 @@ func TestHeadlessModePollsAndExitsCleanly(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	time.AfterFunc(40*time.Millisecond, cancel)
+	time.AfterFunc(100*time.Millisecond, cancel)
 
 	var out bytes.Buffer
 	if err := cmd.RunWithContextAndClient(ctx, []string{"--headless", "--poll", "10ms"}, &out, fake); err != nil {

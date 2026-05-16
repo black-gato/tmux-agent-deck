@@ -2,14 +2,226 @@
 
 Tracked bugs in tmux-agent-deck. Newest first. Status: `open`, `in-progress`, `fixed`.
 
-Current repo status as of 2026-05-14: BUG-001 through BUG-005 are fixed in the current branch. BUG-006 through BUG-008 are open. Verified by inspecting the implementation and running `go test ./...`.
+Current repo status as of 2026-05-16: BUG-011 is open. BUG-001 through BUG-010 are fixed in the current branch. Verified fixed bugs by inspecting the implementation and running `go test ./...`.
+
+---
+
+## BUG-011: fullscreen output view hides dialogs and makes the TUI appear frozen
+
+**Reported:** 2026-05-16
+**Status:** open
+**Severity:** high (common workflows become unusable from fullscreen mode)
+
+### Symptom
+
+After pressing `v` to enter fullscreen output mode, opening a dialog-backed workflow such as send keys (`x`), broadcast (`b`), or new session (`n`) makes the TUI appear frozen.
+
+Reported affected flows:
+
+1. Press `v`, then `x` for send.
+2. Press `v`, then `b` for broadcast.
+3. Press `v`, then `n` for new session.
+
+The app likely still receives input, but the active prompt is not visible and normal navigation keys no longer behave as expected.
+
+### Suspected root cause
+
+`internal/ui/app.go` renders fullscreen before it considers normal dialog overlays:
+
+```go
+if m.viewFull {
+    sep := strings.Repeat("─", m.width)
+    detail := m.RenderDetailPanel(m.width, contentH)
+    return header + "\n" + sep + "\n" + detail + "\n" + footer
+}
+```
+
+For non-fullscreen layout, dialog rendering happens later:
+
+```go
+if m.mode != "" && m.mode != "edit-notes" {
+    rightContent = m.renderDialog()
+} else {
+    rightContent = m.RenderDetailPanel(rightW, contentH)
+}
+```
+
+This means `x`, `b`, and `n` can set `m.mode` to `send-pane`, `broadcast`, or `new-session`, but `View()` continues to render only the fullscreen detail panel. Once `m.mode != ""`, key handling routes to `updateDialog`, so pressing `v` no longer exits fullscreen; it is treated as dialog input. That combination looks like a freeze.
+
+### Expected behaviour
+
+Dialog-backed workflows should remain visible and usable from fullscreen mode.
+
+Acceptable behaviours:
+
+1. Opening `send`, `broadcast`, or `new-session` while fullscreen should show the dialog over the fullscreen output view.
+2. Or opening those workflows should automatically leave fullscreen and show the normal split layout with the dialog.
+3. Esc / Ctrl-C should always make it clear that the dialog was canceled and restore usable navigation.
+
+### Planned fix
+
+Prefer preserving fullscreen output and rendering the active dialog as an overlay or replacement prompt area when `m.viewFull && m.mode != ""`.
+
+Implementation options:
+
+1. **`internal/ui/app.go` `View()`** — check for active non-help dialog mode before the fullscreen early return, and render `m.renderDialog()` visibly.
+2. **`internal/ui/app.go` `updateNavigation()`** — when starting `send-pane`, `broadcast`, or `new-session`, set `m.viewFull = false` so the existing split-layout dialog path is reused.
+3. Add a small regression test for each entry point, or at least a table-driven test that enters fullscreen, opens the action, and asserts the resulting view contains the expected prompt.
+
+### Test plan
+
+- `internal/ui/app_test.go` — fullscreen then `x` shows `Send:` in `View()`.
+- `internal/ui/app_test.go` — fullscreen then `b` shows the broadcast prompt / scope selector in `View()`.
+- `internal/ui/app_test.go` — fullscreen then `n` shows `Session title:` in `View()`.
+- Regression guard: while a dialog is open from fullscreen, Esc exits dialog mode and the TUI remains usable.
+
+### Files likely touched
+
+- `internal/ui/app.go`
+- `internal/ui/app_test.go`
+
+---
+
+## BUG-010: existing tmux sessions show `running` on app startup even when inactive for days
+
+**Reported:** 2026-05-16
+**Status:** fixed
+**Severity:** medium (status view is misleading at launch; old inactive work appears active)
+
+### Symptom
+
+When `tmux-agent-deck` starts, existing sessions can all display as `running` even though they have not produced output or been active for days.
+
+This is visible immediately after launching the TUI. Sessions that should appear `idle` get treated as recently active until the poller observes enough samples in the current process.
+
+### Relationship to BUG-005
+
+This is related to, but distinct from, BUG-005.
+
+BUG-005 fixed stale output detection after the poller has observed a session and can compare pane output across polls. This startup case still fails because the poller has no in-memory baseline when the app first launches.
+
+### Root cause
+
+`internal/state/poller.go` stores pane activity in memory only:
+
+```go
+lastChange map[string]time.Time
+lastOutput map[string]string
+```
+
+On first observation after startup, `observeOutput` treats the captured pane output as newly changed:
+
+```go
+if !hadPrev || prev != out {
+    p.lastOutput[id] = out
+    p.lastChange[id] = now
+}
+```
+
+That means every pre-existing tmux session gets `lastChange = now` on the first poll, regardless of whether the actual tmux pane has been silent for minutes, hours, or days. `DetectStatus` then sees `now.Sub(lastChange) <= 30s` and returns `running` unless the output matches a waiting prompt.
+
+The persisted `sessions.last_active` value is not used to seed the poller's `lastChange`, and the tmux client does not currently expose tmux's own activity timestamp, such as `#{session_activity}`.
+
+### Expected behaviour
+
+When the app starts, status detection for existing tmux sessions should reflect real inactivity age instead of treating startup as fresh activity.
+
+Examples:
+
+1. A session whose pane output has not changed for days should appear `idle` on the first poll.
+2. A session currently producing output should remain `running`.
+3. A session sitting at a prompt should still appear `waiting`.
+
+### Planned fix
+
+1. Seed `lastChange` for first-observed sessions from a durable activity source instead of `now`.
+2. Preferred source: tmux's session or pane activity timestamp, e.g. `tmux display-message -p -t <session> '#{session_activity}'`.
+3. Fallback source: the DB `last_active` value if tmux activity cannot be read.
+4. Keep the existing output-comparison logic for subsequent polls so BUG-005 stays fixed.
+
+### Test plan
+
+- `internal/state/poller_test.go` — first poll for a session with an old activity timestamp and stale non-prompt output marks it `idle`.
+- `internal/state/poller_test.go` — first poll for a session with recent activity stays `running`.
+- `internal/state/poller_test.go` — first poll for an old session at a waiting prompt still marks it `waiting`.
+- Existing BUG-005 tests continue to pass.
+
+### Files touched
+
+- `internal/state/poller.go`
+- `internal/state/poller_test.go`
+- `internal/tmux/client.go`
+- `internal/tmux/client_test.go`
+
+---
+
+## BUG-009: deleting a session can fail with raw `exit status 1` when its tmux session is already gone
+
+**Reported:** 2026-05-16
+**Status:** fixed
+**Severity:** medium (session cannot be removed from the TUI; raw infrastructure error leaks to the user)
+
+### Symptom
+
+A newly created session can appear fine in the TUI, but deleting it fails with:
+
+```text
+error: exit status 1
+
+Press q or ctrl+c to quit
+```
+
+Example report: create a session titled `",,,,fsd"`, then try to delete it. The title is likely incidental; the user-visible failure is that delete surfaces a raw tmux exit code instead of removing the session or explaining what went wrong.
+
+### Root cause
+
+`internal/ui/app.go:736` in `deleteSession` treats any tmux kill failure as fatal:
+
+```go
+if session.TmuxSession != "" && m.tmuxC != nil {
+    if err := m.tmuxC.KillSession(session.TmuxSession); err != nil {
+        return err
+    }
+}
+return db.DeleteSession(m.conn, session.ID)
+```
+
+`internal/tmux/client.go:59` `KillSession` directly returns `runCmd("tmux", "kill-session", "-t", name)`. If tmux exits with status 1 because the session no longer exists, that raw process error bubbles into the UI unchanged, and the DB delete never runs.
+
+### Expected behaviour
+
+Deleting a session should succeed even if its backing tmux session is already gone.
+
+Acceptable behaviours:
+
+1. Treat tmux exit code 1 / "can't find session" as an already-deleted no-op and still remove the DB row.
+2. If deletion truly fails, show a user-facing message that names the tmux session and explains the problem instead of `exit status 1`.
+
+### Planned fix
+
+1. **`internal/tmux/client.go`** — make `KillSession` mirror `SessionExists`: if `tmux kill-session -t <name>` exits 1 because the session does not exist, treat that as success.
+2. **`internal/ui/app.go`** — keep the DB delete path running when the tmux session is already absent.
+3. Consider wrapping unexpected tmux errors with session context, e.g. `delete tmux session %q: %w`, so the UI error is actionable if a real failure occurs.
+
+### Test plan
+
+- `internal/tmux/client_test.go` — killing a missing session is treated as success.
+- `internal/ui/app_test.go` — deleting a session whose `tmux_session` is recorded in the DB but absent in tmux still removes the DB row and does not set `m.err`.
+- Regression guard: deleting a live tmux-backed session still kills the tmux session and removes the DB row.
+
+### Files touched
+
+- `internal/tmux/client.go`
+- `internal/tmux/client_test.go`
+- `internal/ui/app.go`
+- `internal/ui/app_test.go`
 
 ---
 
 ## BUG-008: tmux session names use opaque `ad-` prefix instead of readable `tma-<name>-<id>` convention
 
 **Reported:** 2026-05-14
-**Status:** open
+**Status:** fixed
 **Severity:** low (UX; tmux sessions are hard to identify outside the TUI)
 
 ### Symptom
@@ -61,7 +273,7 @@ Example: a session titled `"api worker"` → `tma-api-worker-3f7a1c2b`.
 ## BUG-007: project path field in new-session dialog has no tab completion
 
 **Reported:** 2026-05-14
-**Status:** open
+**Status:** fixed
 **Severity:** low (UX paper cut; users can still paste or type the full path)
 
 ### Symptom
@@ -118,7 +330,7 @@ In the project path field:
 ## BUG-006: `--notify-style` and `--notify-quiet` flags have no usage documentation
 
 **Reported:** 2026-05-14
-**Status:** open
+**Status:** fixed
 **Severity:** low (discoverability; no functional impact)
 
 ### Symptom

@@ -23,31 +23,31 @@ var (
 )
 
 type Model struct {
-	conn           *sql.DB
-	tmuxC          tmux.ClientIface
-	poller         *state.Poller
-	groups         []db.Group
-	sessions       []db.Session
-	items          []ListItem
-	cursor         int
-	width          int
-	height         int
-	mode           string // "", "new-session", "new-group", "rename", "move"
-	dialog         dialogState
-	err            error
+	conn                 *sql.DB
+	tmuxC                tmux.ClientIface
+	poller               *state.Poller
+	groups               []db.Group
+	sessions             []db.Session
+	items                []ListItem
+	cursor               int
+	width                int
+	height               int
+	mode                 string // "", "new-session", "new-group", "rename", "move"
+	dialog               dialogState
+	err                  error
 	PendingAttach        string // tmux session name to attach after TUI exits
 	PendingStartupScript string
-	viewFull       bool
-	panes          []tmux.Pane
-	output         string
-	activePaneIdx  int
-	waitingSince   map[string]time.Time
-	overdueWaiting int
-	selected         map[string]bool
-	showArchived     bool
-	searchQuery      string
-	contextPct       map[string]*int
-	navigateToGroup  string
+	viewFull             bool
+	panes                []tmux.Pane
+	output               string
+	activePaneIdx        int
+	waitingSince         map[string]time.Time
+	overdueWaiting       int
+	selected             map[string]bool
+	showArchived         bool
+	searchQuery          string
+	contextPct           map[string]*int
+	navigateToGroup      string
 }
 
 func NewModel(conn *sql.DB, tc tmux.ClientIface, poller *state.Poller) *Model {
@@ -898,11 +898,49 @@ func (m *Model) ensureStarted(s *db.Session) (string, bool, error) {
 			return s.TmuxSession, false, nil
 		}
 	}
-	tmuxName := fmt.Sprintf("ad-%s", s.ID[:8])
+	tmuxName := fmt.Sprintf("tma-%s-%s", slugifySessionTitle(s.Title), sessionIDSuffix(s.ID))
 	if err := m.tmuxC.NewSession(tmuxName, s.ProjectPath, s.Tool); err != nil {
 		return "", false, fmt.Errorf("start session: %w", err)
 	}
 	_ = db.UpdateSessionTmuxName(m.conn, s.ID, tmuxName)
 	_ = db.UpdateSessionStatus(m.conn, s.ID, "waiting")
 	return tmuxName, true, nil
+}
+
+func sessionIDSuffix(id string) string {
+	if len(id) <= 8 {
+		return id
+	}
+	return id[:8]
+}
+
+func slugifySessionTitle(title string) string {
+	const maxLen = 40
+	title = strings.ToLower(title)
+	var b strings.Builder
+	lastDash := false
+	for _, r := range title {
+		isAlnum := (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9')
+		if isAlnum {
+			if b.Len() >= maxLen {
+				break
+			}
+			b.WriteRune(r)
+			lastDash = false
+			continue
+		}
+		if b.Len() == 0 || lastDash {
+			continue
+		}
+		if b.Len() >= maxLen {
+			break
+		}
+		b.WriteByte('-')
+		lastDash = true
+	}
+	slug := strings.Trim(b.String(), "-")
+	if slug == "" {
+		return "session"
+	}
+	return slug
 }
