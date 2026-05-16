@@ -26,6 +26,7 @@ var notifyStyle string
 var notifyQuiet string
 var pollInterval time.Duration
 var headlessMode bool
+var autoEscalate bool
 var rootTmuxClient tmux.ClientIface
 
 var rootCmd = &cobra.Command{
@@ -101,11 +102,13 @@ func resetRootOptions() {
 	notifyQuiet = ""
 	pollInterval = time.Second
 	headlessMode = false
+	autoEscalate = false
 	_ = rootCmd.PersistentFlags().Set("notify", "false")
 	_ = rootCmd.PersistentFlags().Set("notify-style", "waiting")
 	_ = rootCmd.PersistentFlags().Set("notify-quiet", "")
 	_ = rootCmd.PersistentFlags().Set("poll", time.Second.String())
 	_ = rootCmd.PersistentFlags().Set("headless", "false")
+	_ = rootCmd.PersistentFlags().Set("auto-escalate", "false")
 	_ = rootCmd.Flags().Set("help", "false")
 }
 
@@ -130,6 +133,9 @@ func launchTUI(conn *sql.DB, tc tmux.ClientIface) error {
 			Style:   notify.Style(notifyStyle),
 			Quiet:   notifyQuiet,
 		}), pollInterval)
+		if autoEscalate {
+			poller.SetSender(tc)
+		}
 		poller.Start()
 
 		m := ui.NewModel(conn, tc, poller)
@@ -162,6 +168,9 @@ func launchHeadless(ctx context.Context, conn *sql.DB, tc tmux.ClientIface) erro
 		Style:   notify.Style(notifyStyle),
 		Quiet:   notifyQuiet,
 	}), pollInterval)
+	if autoEscalate {
+		poller.SetSender(tc)
+	}
 	poller.Start()
 	defer poller.Stop()
 	<-ctx.Done()
@@ -180,4 +189,5 @@ func init() {
   example: --notify-quiet "cooldown=5m,hours=22:00-08:00"`)
 	rootCmd.PersistentFlags().DurationVar(&pollInterval, "poll", time.Second, "Poll interval")
 	rootCmd.PersistentFlags().BoolVar(&headlessMode, "headless", false, "Run the poller without launching the TUI")
+	rootCmd.PersistentFlags().BoolVar(&autoEscalate, "auto-escalate", false, "Automatically send escalation message to group conductor when a worker session goes waiting")
 }
