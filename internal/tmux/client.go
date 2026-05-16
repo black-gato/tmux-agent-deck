@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
+	"time"
 )
 
 const logPrefix = "tmux-agent-deck: "
@@ -16,6 +18,7 @@ type ClientIface interface {
 	AttachSession(name string) error
 	KillSession(name string) error
 	SessionExists(name string) (bool, error)
+	SessionActivity(name string) (time.Time, error)
 	CapturePaneOutput(name string) (string, error)
 	ListSessions() ([]string, error)
 	ListPanes(session string) ([]Pane, error)
@@ -57,7 +60,21 @@ func (c *Client) AttachSession(name string) error {
 }
 
 func (c *Client) KillSession(name string) error {
-	return runCmd("tmux", "kill-session", "-t", name)
+	exists, err := c.SessionExists(name)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return nil
+	}
+	if err := runCmd("tmux", "kill-session", "-t", name); err != nil {
+		exists, existsErr := c.SessionExists(name)
+		if existsErr == nil && !exists {
+			return nil
+		}
+		return err
+	}
+	return nil
 }
 
 func (c *Client) SessionExists(name string) (bool, error) {
@@ -69,6 +86,21 @@ func (c *Client) SessionExists(name string) (bool, error) {
 		return false, nil
 	}
 	return false, err
+}
+
+func (c *Client) SessionActivity(name string) (time.Time, error) {
+	out, err := cmdOutput("tmux", "display-message", "-p", "-t", name, "#{session_activity}")
+	if err != nil {
+		return time.Time{}, fmt.Errorf("session activity %q: %w", name, err)
+	}
+	sec, err := strconv.ParseInt(strings.TrimSpace(string(out)), 10, 64)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("parse session activity %q: %w", name, err)
+	}
+	if sec <= 0 {
+		return time.Time{}, nil
+	}
+	return time.Unix(sec, 0), nil
 }
 
 func (c *Client) CapturePaneOutput(name string) (string, error) {

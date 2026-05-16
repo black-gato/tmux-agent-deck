@@ -17,6 +17,7 @@ import (
 type TmuxReader interface {
 	CapturePaneOutput(name string) (string, error)
 	SessionExists(name string) (bool, error)
+	SessionActivity(name string) (time.Time, error)
 }
 
 type Poller struct {
@@ -144,7 +145,7 @@ func (p *Poller) PollOnce() {
 		p.setContextPct(s.ID, tmux.ParseContextPct(out))
 
 		now := p.now()
-		lc := p.observeOutput(s.ID, out, now)
+		lc := p.observeOutput(s.ID, out, now, p.initialLastChange(s, now))
 
 		newStatus := tmux.DetectStatus(out, lc, now, s.Tool)
 		p.updateWaitingState(s.ID, s.Status, newStatus, now)
@@ -257,17 +258,30 @@ func (p *Poller) ContextPctSnapshot() map[string]*int {
 // timestamp of the last time the output actually changed. The returned time is
 // used by DetectStatus to decide whether stale "Thinking" / spinner markers
 // should still count as activity.
-func (p *Poller) observeOutput(id, out string, now time.Time) time.Time {
+func (p *Poller) observeOutput(id, out string, now, initialLastChange time.Time) time.Time {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	prev, hadPrev := p.lastOutput[id]
-	if !hadPrev || prev != out {
+	if !hadPrev {
+		p.lastOutput[id] = out
+		p.lastChange[id] = initialLastChange
+	} else if prev != out {
 		p.lastOutput[id] = out
 		p.lastChange[id] = now
 	} else if _, ok := p.lastChange[id]; !ok {
-		p.lastChange[id] = now
+		p.lastChange[id] = initialLastChange
 	}
 	return p.lastChange[id]
+}
+
+func (p *Poller) initialLastChange(s db.Session, now time.Time) time.Time {
+	if activity, err := p.tmux.SessionActivity(s.TmuxSession); err == nil && !activity.IsZero() {
+		return activity
+	}
+	if s.LastActive > 0 {
+		return time.Unix(s.LastActive, 0)
+	}
+	return now
 }
 
 func (p *Poller) updateWaitingState(id, previousStatus, newStatus string, now time.Time) {

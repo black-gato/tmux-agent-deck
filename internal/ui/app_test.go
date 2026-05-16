@@ -1,6 +1,8 @@
 package ui_test
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -105,6 +107,90 @@ func TestNewSessionDialogCreatesSession(t *testing.T) {
 	}
 	if sessions[0].GroupPath != "my-sessions" {
 		t.Errorf("group: got %q want my-sessions", sessions[0].GroupPath)
+	}
+}
+
+func TestNewSessionPathTabCompletesSingleMatch(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	tmp := t.TempDir()
+	if err := os.Mkdir(filepath.Join(tmp, "ProjectAlpha"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(tmp); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(wd)
+
+	m := ui.NewModel(conn, nil, nil)
+	m.Reload()
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+	for _, r := range "my-app" {
+		m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	for _, r := range "/Pro" {
+		m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	sessions, err := db.ListSessions(conn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sessions) != 1 {
+		t.Fatalf("expected 1 session, got %d", len(sessions))
+	}
+	realTmp, err := filepath.EvalSymlinks(tmp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(realTmp, "ProjectAlpha") + string(os.PathSeparator)
+	if sessions[0].ProjectPath != want {
+		t.Fatalf("ProjectPath: got %q want %q", sessions[0].ProjectPath, want)
+	}
+}
+
+func TestNewSessionPathTabShowsCandidatesOnSecondTab(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	tmp := t.TempDir()
+	for _, name := range []string{"ProjectAlpha", "ProjectBeta"} {
+		if err := os.Mkdir(filepath.Join(tmp, name), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(tmp); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(wd)
+
+	m := ui.NewModel(conn, nil, nil)
+	m.Update(tea.WindowSizeMsg{Width: 100, Height: 20})
+	m.Reload()
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+	for _, r := range "my-app" {
+		m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	for _, r := range "/Pro" {
+		m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	m.Update(tea.KeyMsg{Type: tea.KeyTab})
+
+	view := m.View()
+	if !strings.Contains(view, "ProjectAlpha") || !strings.Contains(view, "ProjectBeta") {
+		t.Fatalf("expected path candidates in view, got:\n%s", view)
 	}
 }
 
@@ -767,6 +853,31 @@ func TestDeleteKillsSelectedSessions(t *testing.T) {
 	}
 	if m.SelectedCount() != 0 {
 		t.Fatalf("selected count: got %d want 0", m.SelectedCount())
+	}
+}
+
+func TestDeleteRemovesSessionWhenTmuxSessionAlreadyGone(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	fake := testutil.NewFakeTmuxClient()
+	db.CreateSession(conn, db.Session{
+		ID: "s1", Title: "stale", GroupPath: "my-sessions", TmuxSession: "ad-missing",
+		ProjectPath: "/p", Tool: "claude", Status: "running", CreatedAt: 1000,
+	})
+	m := ui.NewModel(conn, fake, nil)
+	m.Reload()
+
+	moveCursorToSession(t, m, "stale")
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
+
+	sessions, err := db.ListSessions(conn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sessions) != 0 {
+		t.Fatalf("expected stale session to be removed, got %#v", sessions)
+	}
+	if strings.Contains(m.View(), "error:") {
+		t.Fatalf("delete should not show error view, got:\n%s", m.View())
 	}
 }
 
@@ -1912,6 +2023,12 @@ func TestPendingStartupScriptSetForNewSession(t *testing.T) {
 
 	if m.PendingStartupScript != "claude --resume" {
 		t.Errorf("PendingStartupScript: got %q want %q", m.PendingStartupScript, "claude --resume")
+	}
+	if m.PendingAttach != "tma-with-script-abc12345" {
+		t.Errorf("PendingAttach: got %q want tma-with-script-abc12345", m.PendingAttach)
+	}
+	if len(fake.NewSessionCalls) != 1 || fake.NewSessionCalls[0].Name != "tma-with-script-abc12345" {
+		t.Fatalf("new session name: calls=%#v", fake.NewSessionCalls)
 	}
 }
 

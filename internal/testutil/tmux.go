@@ -2,16 +2,19 @@ package testutil
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/black-gato/tmux-agent-deck/internal/tmux"
 )
 
 // FakeTmuxClient implements tmux.ClientIface for tests.
 // Sessions maps session name → pane output.
+// Activities maps session name → last tmux activity timestamp.
 // Panes maps session name → pane list.
 // SentKeys records all SendKeys calls.
 type FakeTmuxClient struct {
 	Sessions        map[string]string
+	Activities      map[string]time.Time
 	Panes           map[string][]tmux.Pane
 	NewSessionCalls []NewSessionCall
 	AttachCalls     []string
@@ -36,8 +39,9 @@ type SentKeysCall struct {
 
 func NewFakeTmuxClient() *FakeTmuxClient {
 	return &FakeTmuxClient{
-		Sessions: make(map[string]string),
-		Panes:    make(map[string][]tmux.Pane),
+		Sessions:   make(map[string]string),
+		Activities: make(map[string]time.Time),
+		Panes:      make(map[string][]tmux.Pane),
 	}
 }
 
@@ -64,6 +68,13 @@ func (f *FakeTmuxClient) KillSession(name string) error {
 func (f *FakeTmuxClient) SessionExists(name string) (bool, error) {
 	_, ok := f.Sessions[name]
 	return ok, nil
+}
+
+func (f *FakeTmuxClient) SessionActivity(name string) (time.Time, error) {
+	if activity, ok := f.Activities[name]; ok {
+		return activity, nil
+	}
+	return time.Time{}, nil
 }
 
 func (f *FakeTmuxClient) CapturePaneOutput(name string) (string, error) {
