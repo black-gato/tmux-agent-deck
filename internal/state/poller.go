@@ -24,6 +24,7 @@ type Poller struct {
 	conn         *sql.DB
 	tmux         TmuxReader
 	notifier     waitingNotifier
+	sender       TmuxSender
 	now          func() time.Time
 	interval     time.Duration
 	mu           sync.RWMutex
@@ -38,6 +39,10 @@ type waitingNotifier interface {
 	Enabled() bool
 	Style() notify.Style
 	Notify(title, body string) error
+}
+
+type TmuxSender interface {
+	SendKeys(session string, pane int, keys string) error
 }
 
 func New(conn *sql.DB, tc TmuxReader) *Poller {
@@ -72,6 +77,10 @@ func NewWithClockInterval(conn *sql.DB, tc TmuxReader, notifier waitingNotifier,
 		contextPct:   make(map[string]*int),
 		done:         make(chan struct{}),
 	}
+}
+
+func (p *Poller) SetSender(s TmuxSender) {
+	p.sender = s
 }
 
 func (p *Poller) Start() {
