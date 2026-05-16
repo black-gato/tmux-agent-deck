@@ -4,6 +4,7 @@ package e2e
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"os"
 	"os/exec"
@@ -76,6 +77,22 @@ func (e *TestEnv) RunCLI(t *testing.T, args ...string) string {
 		t.Fatalf("%s %v failed: %v\nstdout:\n%s\nstderr:\n%s", e.Suite.BinPath, args, err, stdout.String(), stderr.String())
 	}
 	return stdout.String()
+}
+
+func (e *TestEnv) StartHeadlessPoller(t *testing.T, extraArgs ...string) {
+	t.Helper()
+	args := append([]string{"--headless"}, extraArgs...)
+	ctx, cancel := context.WithCancel(context.Background())
+	cmd := exec.CommandContext(ctx, e.Suite.BinPath, args...)
+	cmd.Env = e.Env()
+	if err := cmd.Start(); err != nil {
+		cancel()
+		t.Fatalf("start headless poller: %v", err)
+	}
+	t.Cleanup(func() {
+		cancel()
+		_ = cmd.Wait()
+	})
 }
 
 func (e *TestEnv) StartTUI(t *testing.T, width, height int) *TUIDriver {
