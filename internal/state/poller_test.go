@@ -12,14 +12,24 @@ import (
 )
 
 type stubTmux struct {
-	output   string
-	exists   bool
-	activity time.Time
+	output    string
+	outputs   map[string]string // per-session output overrides
+	exists    bool
+	activity  time.Time
+	activities map[string]time.Time
 }
 
-func (s *stubTmux) CapturePaneOutput(name string) (string, error) { return s.output, nil }
+func (s *stubTmux) CapturePaneOutput(name string) (string, error) {
+	if s.outputs != nil && s.outputs[name] != "" {
+		return s.outputs[name], nil
+	}
+	return s.output, nil
+}
 func (s *stubTmux) SessionExists(name string) (bool, error)       { return s.exists, nil }
 func (s *stubTmux) SessionActivity(name string) (time.Time, error) {
+	if s.activities != nil && !s.activities[name].IsZero() {
+		return s.activities[name], nil
+	}
 	return s.activity, nil
 }
 
@@ -553,29 +563,7 @@ func (s *stubSender) SendKeys(session string, pane int, keys string) error {
 	return nil
 }
 
-type smartStubTmux struct {
-	exists          bool
-	conductorOutput string
-	workerOutput    string
-	activity        time.Time
-}
-
-func (s *smartStubTmux) CapturePaneOutput(name string) (string, error) {
-	if strings.Contains(name, "conductor") {
-		return s.conductorOutput, nil
-	}
-	return s.workerOutput, nil
-}
-
-func (s *smartStubTmux) SessionExists(name string) (bool, error) {
-	return s.exists, nil
-}
-
-func (s *smartStubTmux) SessionActivity(name string) (time.Time, error) {
-	return s.activity, nil
-}
-
-func TestAutoEscalateSendsToCondutorOnWaitingTransition(t *testing.T) {
+func TestAutoEscalateSendsToConductorOnWaitingTransition(t *testing.T) {
 	conn := testutil.OpenTestDB(t)
 	now := time.Now().Unix()
 	db.CreateGroup(conn, db.Group{Path: "work", Name: "work", ConductorSessionID: "conductor"})
@@ -588,10 +576,12 @@ func TestAutoEscalateSendsToCondutorOnWaitingTransition(t *testing.T) {
 		ProjectPath: "/p", Tool: "claude", Status: "running", CreatedAt: now, Notes: "stuck on auth",
 	})
 
-	stub := &smartStubTmux{
-		conductorOutput: "Thinking about this...\n",
-		workerOutput:    "line1\nline2\nline3\n> ",
-		exists:          true,
+	stub := &stubTmux{
+		outputs: map[string]string{
+			"tmux-conductor": "Thinking about this...\n",
+			"tmux-worker":    "line1\nline2\nline3\n> ",
+		},
+		exists: true,
 	}
 	sender := &stubSender{}
 	p := state.New(conn, stub)
@@ -632,10 +622,12 @@ func TestAutoEscalateFiresOncePerTransition(t *testing.T) {
 		ProjectPath: "/p", Tool: "claude", Status: "running", CreatedAt: now,
 	})
 
-	stub := &smartStubTmux{
-		conductorOutput: "Thinking about this...\n",
-		workerOutput:    "Some output\n> ",
-		exists:          true,
+	stub := &stubTmux{
+		outputs: map[string]string{
+			"tmux-conductor": "Thinking about this...\n",
+			"tmux-worker":    "Some output\n> ",
+		},
+		exists: true,
 	}
 	sender := &stubSender{}
 	p := state.New(conn, stub)
@@ -661,11 +653,7 @@ func TestAutoEscalateSkipsWhenSenderNil(t *testing.T) {
 		ProjectPath: "/p", Tool: "claude", Status: "running", CreatedAt: now,
 	})
 
-	stub := &smartStubTmux{
-		conductorOutput: "Thinking about this...\n",
-		workerOutput:    "Some output\n> ",
-		exists:          true,
-	}
+	stub := &stubTmux{output: "Some output\n> ", exists: true}
 	p := state.New(conn, stub) // no SetSender call
 	p.PollOnce()               // should not panic or send anything
 }
@@ -679,10 +667,7 @@ func TestAutoEscalateSkipsWhenNoConductor(t *testing.T) {
 		ProjectPath: "/p", Tool: "claude", Status: "running", CreatedAt: now,
 	})
 
-	stub := &smartStubTmux{
-		workerOutput: "Some output\n> ",
-		exists:       true,
-	}
+	stub := &stubTmux{output: "Some output\n> ", exists: true}
 	sender := &stubSender{}
 	p := state.New(conn, stub)
 	p.SetSender(sender)
@@ -702,10 +687,7 @@ func TestAutoEscalateSkipsWhenSessionIsConductor(t *testing.T) {
 		ProjectPath: "/p", Tool: "claude", Status: "running", CreatedAt: now,
 	})
 
-	stub := &smartStubTmux{
-		conductorOutput: "Some output\n> ",
-		exists:          true,
-	}
+	stub := &stubTmux{output: "Some output\n> ", exists: true}
 	sender := &stubSender{}
 	p := state.New(conn, stub)
 	p.SetSender(sender)
@@ -729,11 +711,7 @@ func TestAutoEscalateSkipsWhenConductorNotRunning(t *testing.T) {
 		ProjectPath: "/p", Tool: "claude", Status: "running", CreatedAt: now,
 	})
 
-	stub := &smartStubTmux{
-		conductorOutput: "Waiting for input\n> ",
-		workerOutput:    "Some output\n> ",
-		exists:          true,
-	}
+	stub := &stubTmux{output: "Some output\n> ", exists: true}
 	sender := &stubSender{}
 	p := state.New(conn, stub)
 	p.SetSender(sender)
