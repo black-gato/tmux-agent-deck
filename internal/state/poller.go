@@ -168,6 +168,7 @@ func (p *Poller) PollOnce() {
 				} else {
 					p.notifyWaiting(s)
 				}
+				p.autoEscalate(s, out)
 			}
 		}
 	}
@@ -230,6 +231,26 @@ func (p *Poller) digestBody(conductorTitle string, sessions []db.Session) string
 		lines = append(lines, line)
 	}
 	return strings.Join(lines, "\n")
+}
+
+func (p *Poller) autoEscalate(session db.Session, output string) {
+	if p.sender == nil {
+		return
+	}
+	conductor, err := db.GetGroupConductorSession(p.conn, session.GroupPath)
+	if err != nil || conductor.Title == "" {
+		return
+	}
+	if conductor.ID == session.ID {
+		return
+	}
+	if conductor.Status != tmux.StatusRunning || conductor.TmuxSession == "" {
+		log.Printf("poller: auto-escalate %q: conductor %q not running", session.ID, conductor.Title)
+		return
+	}
+	if err := p.sender.SendKeys(conductor.TmuxSession, 0, escalationMessage(session, output)); err != nil {
+		log.Printf("poller: auto-escalate send keys %q: %v", session.ID, err)
+	}
 }
 
 func (p *Poller) clearSessionState(id string) {
