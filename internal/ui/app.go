@@ -213,8 +213,13 @@ func (m *Model) updateNavigation(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					break
 				}
 				m.PendingAttach = tmuxName
-				if isNew && item.Session.StartupScript != "" {
-					m.PendingStartupScript = item.Session.StartupScript
+				if isNew {
+					s := item.Session
+					if s.ToolFlags != "" {
+						m.PendingStartupScript = s.Tool + " " + s.ToolFlags + "\n"
+					} else if s.StartupScript != "" {
+						m.PendingStartupScript = s.StartupScript
+					}
 				}
 				if m.poller != nil {
 					m.poller.Stop()
@@ -946,7 +951,15 @@ func (m *Model) ensureStarted(s *db.Session) (string, bool, error) {
 		}
 	}
 	tmuxName := fmt.Sprintf("tma-%s-%s", slugifySessionTitle(s.Title), sessionIDSuffix(s.ID))
-	if err := m.tmuxC.NewSession(tmuxName, s.ProjectPath, s.Tool, s.ToolFlags); err != nil {
+	// When flags are set, start with the default shell so the user's login PATH is
+	// available. The full command (tool + flags) is sent via SendKeys after attach.
+	tool := s.Tool
+	toolFlags := s.ToolFlags
+	if toolFlags != "" {
+		tool = ""
+		toolFlags = ""
+	}
+	if err := m.tmuxC.NewSession(tmuxName, s.ProjectPath, tool, toolFlags); err != nil {
 		return "", false, fmt.Errorf("start session: %w", err)
 	}
 	_ = db.UpdateSessionTmuxName(m.conn, s.ID, tmuxName)
