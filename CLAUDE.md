@@ -143,7 +143,7 @@ Full roadmap: [docs/superpowers/specs/2026-05-10-roadmap.md](docs/superpowers/sp
 
 ## Known Bugs
 
-Tracked in [docs/bugs.md](docs/bugs.md). BUG-001 through BUG-010 are fixed. **BUG-011 is open** (fullscreen output view hides dialogs).
+Tracked in [docs/bugs.md](docs/bugs.md). All bugs BUG-001 through BUG-012 are fixed. No open bugs.
 
 Key fixed bugs that shaped the architecture:
 - **BUG-005** — idle detection now tracks actual pane-output changes (`lastOutput` map in poller); `DetectStatus` idle check runs before spinner heuristics.

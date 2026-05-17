@@ -2,7 +2,7 @@
 
 Tracked bugs in tmux-agent-deck. Newest first. Status: `open`, `in-progress`, `fixed`.
 
-Current repo status as of 2026-05-17: BUG-011 is open. BUG-001 through BUG-010 and BUG-012 are fixed. Verified fixed bugs by inspecting the implementation and running `go test ./...`.
+Current repo status as of 2026-05-17: All bugs BUG-001 through BUG-012 are fixed. No open bugs.
 
 ---
 
@@ -34,7 +34,7 @@ Changed both filters from `s.Status != "running"` to `s.TmuxSession == "" || s.S
 ## BUG-011: fullscreen output view hides dialogs and makes the TUI appear frozen
 
 **Reported:** 2026-05-16
-**Status:** open
+**Status:** fixed
 **Severity:** high (common workflows become unusable from fullscreen mode)
 
 ### Symptom

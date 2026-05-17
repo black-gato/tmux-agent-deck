@@ -2265,3 +2265,78 @@ func TestSendPaneMultiSelectSkipsStoppedSessions(t *testing.T) {
 		t.Error("stopped session ad-s3 should not receive keys")
 	}
 }
+
+func TestFullscreenExitsWhenDialogOpens(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	fake := testutil.NewFakeTmuxClient()
+	db.CreateSession(conn, db.Session{
+		ID: "s1", Title: "worker", GroupPath: "my-sessions", TmuxSession: "ad-s1",
+		ProjectPath: "/p", Tool: "claude", Status: "waiting", CreatedAt: 1000,
+	})
+	m := ui.NewModel(conn, fake, nil)
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	m.Reload()
+	moveCursorToSession(t, m, "worker")
+
+	// enter fullscreen
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'v'}})
+	if !m.ViewFull() {
+		t.Fatal("expected viewFull=true after pressing v")
+	}
+
+	// open send-pane dialog from fullscreen
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
+	if m.ViewFull() {
+		t.Error("viewFull should be false once a dialog opens")
+	}
+	if !strings.Contains(m.View(), "Send:") {
+		t.Errorf("expected Send: prompt in view, got:\n%s", m.View())
+	}
+
+	// Esc cancels the dialog and TUI remains usable
+	m.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	if m.Mode() != "" {
+		t.Errorf("expected mode cleared after Esc, got %q", m.Mode())
+	}
+}
+
+func TestFullscreenExitsBroadcastDialog(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	fake := testutil.NewFakeTmuxClient()
+	db.CreateSession(conn, db.Session{
+		ID: "s1", Title: "worker", GroupPath: "my-sessions", TmuxSession: "ad-s1",
+		ProjectPath: "/p", Tool: "claude", Status: "waiting", CreatedAt: 1000,
+	})
+	m := ui.NewModel(conn, fake, nil)
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	m.Reload()
+
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'v'}})
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'b'}})
+
+	if m.ViewFull() {
+		t.Error("viewFull should be false once broadcast dialog opens")
+	}
+	view := m.View()
+	if !strings.Contains(view, "this group") && !strings.Contains(view, "Broadcast") && !strings.Contains(view, "broadcast") {
+		t.Errorf("expected broadcast scope selector in view, got:\n%s", view)
+	}
+}
+
+func TestFullscreenExitsNewSessionDialog(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	fake := testutil.NewFakeTmuxClient()
+	m := ui.NewModel(conn, fake, nil)
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	m.Reload()
+
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'v'}})
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+
+	if m.ViewFull() {
+		t.Error("viewFull should be false once new-session dialog opens")
+	}
+	if !strings.Contains(m.View(), "Session title:") {
+		t.Errorf("expected 'Session title:' in view, got:\n%s", m.View())
+	}
+}

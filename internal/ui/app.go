@@ -368,6 +368,9 @@ func (m *Model) updateNavigation(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.dialog = newDialogState("Filter:")
 		m.dialog.value = m.searchQuery
 	}
+	if m.viewFull && m.mode != "" {
+		m.viewFull = false
+	}
 	return m, nil
 }
 
@@ -658,6 +661,38 @@ func tailLines(output string, n int) []string {
 	return all[len(all)-n:]
 }
 
+func contextLines(output string, n int) []string {
+	if n <= 0 || output == "" {
+		return nil
+	}
+	all := strings.Split(output, "\n")
+	lines := make([]string, 0, n)
+	for i := len(all) - 1; i >= 0 && len(lines) < n; i-- {
+		line := strings.TrimSpace(all[i])
+		if !isContextLine(line) {
+			continue
+		}
+		lines = append(lines, line)
+	}
+	for i, j := 0, len(lines)-1; i < j; i, j = i+1, j-1 {
+		lines[i], lines[j] = lines[j], lines[i]
+	}
+	return lines
+}
+
+func isContextLine(line string) bool {
+	if line == "" || line == ">" || line == "❯" {
+		return false
+	}
+	if strings.Contains(line, "-- INSERT --") {
+		return false
+	}
+	if strings.Contains(line, "ctx:") && strings.Contains(line, "@") {
+		return false
+	}
+	return strings.Trim(line, "─━═- ") != ""
+}
+
 func formatElapsed(d time.Duration) string {
 	if d < 0 {
 		d = 0
@@ -819,13 +854,20 @@ func (m *Model) escalateSelectedSession() error {
 	if conductor.ID == session.ID {
 		return fmt.Errorf("session %q is already the conductor", session.Title)
 	}
-	if conductor.Status != tmux.StatusRunning || conductor.TmuxSession == "" {
+	if conductorUnavailable(conductor) {
 		return fmt.Errorf("conductor %q is not running", conductor.Title)
 	}
 	if m.tmuxC == nil {
 		return fmt.Errorf("tmux client unavailable")
 	}
-	return m.tmuxC.SendKeys(conductor.TmuxSession, 0, m.escalationMessage(session))
+	if err := m.tmuxC.SendKeys(conductor.TmuxSession, 0, m.escalationMessage(session)); err != nil {
+		return err
+	}
+	return m.tmuxC.SendRawKeys(conductor.TmuxSession, 0, "Enter")
+}
+
+func conductorUnavailable(conductor db.Session) bool {
+	return conductor.TmuxSession == "" || conductor.Status == tmux.StatusStopped || conductor.Status == tmux.StatusError
 }
 
 func (m *Model) escalationMessage(session *db.Session) string {
@@ -836,7 +878,7 @@ func (m *Model) escalationMessage(session *db.Session) string {
 	if session.Notes != "" {
 		lines = append(lines, fmt.Sprintf("Notes: %s", session.Notes))
 	}
-	context := strings.Join(tailLines(m.output, 3), "\n")
+	context := strings.Join(contextLines(m.output, 5), "\n")
 	if strings.TrimSpace(context) != "" {
 		lines = append(lines, "Current issue context:")
 		lines = append(lines, context)
