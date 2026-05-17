@@ -2,7 +2,32 @@
 
 Tracked bugs in tmux-agent-deck. Newest first. Status: `open`, `in-progress`, `fixed`.
 
-Current repo status as of 2026-05-16: BUG-011 is open. BUG-001 through BUG-010 are fixed in the current branch. Verified fixed bugs by inspecting the implementation and running `go test ./...`.
+Current repo status as of 2026-05-17: BUG-011 is open. BUG-001 through BUG-010 and BUG-012 are fixed. Verified fixed bugs by inspecting the implementation and running `go test ./...`.
+
+---
+
+## BUG-012: broadcast and multi-select send silently skip waiting and idle sessions
+
+**Reported:** 2026-05-17
+**Status:** fixed
+**Severity:** high (broadcast sends nothing in the most common real-world use case)
+
+### Symptom
+
+Pressing `b` (broadcast) and submitting text appears to succeed but no sessions receive the message. The same silent failure affects `x` (send-pane) when sessions are multi-selected.
+
+### Root cause
+
+`internal/ui/dialog.go` filtered sessions with `s.Status != "running"` in both the broadcast loop (line 443) and the send-pane multi-select loop (line 387). Sessions in `waiting` or `idle` state — the most common targets for broadcast — were silently skipped. Single-target `x` (no selection) did not have this filter and worked correctly.
+
+### Resolution
+
+Changed both filters from `s.Status != "running"` to `s.TmuxSession == "" || s.Status == tmux.StatusStopped || s.Status == tmux.StatusError`. Sessions in `waiting`, `idle`, or `running` state now receive broadcasts. Only sessions with no tmux backing (`stopped`/`error`) are skipped.
+
+### Files touched
+
+- `internal/ui/dialog.go`
+- `internal/ui/app_test.go`
 
 ---
 

@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+**Status: Complete** — all tasks implemented and verified.
+
 **Goal:** When a worker session transitions to `waiting` and its group has a conductor, automatically send the escalation message to the conductor's tmux pane — opt-in via `--auto-escalate` flag.
 
 **Architecture:** Add a `TmuxSender` interface and optional `sender` field to `Poller`, with a `SetSender` method for injection. A new `autoEscalate` method fires once per `→ waiting` transition, looks up the group conductor, and calls `SendKeys` with the same message format as the manual `C` key. A `--auto-escalate` CLI flag wires the real tmux client as the sender.

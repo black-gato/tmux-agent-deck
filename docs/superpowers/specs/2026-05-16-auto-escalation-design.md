@@ -1,7 +1,7 @@
 # Auto-Escalation Design
 
 **Date:** 2026-05-16
-**Status:** Approved
+**Status:** Implemented
 
 ## Overview
 
@@ -101,3 +101,17 @@ Errors from `autoEscalate` are logged (`log.Printf`) and discarded — same patt
 - Notes present and absent
 - Output present and absent
 - Trims blank output lines correctly
+
+---
+
+## Post-Implementation Notes
+
+**Implemented 2026-05-16.** The design was followed with two deviations:
+
+1. **`NewWithSender` constructor not used.** Instead a `SetSender(s TmuxSender)` method was added to `Poller`. The CLI calls `poller.SetSender(tc)` when `--auto-escalate` is true. This keeps the constructor signatures consistent with `NewWithNotifier` / `NewWithClock` pattern and avoids a combinatorial explosion of constructors.
+
+2. **Conductor availability check expanded.** The design said "conductor not running → log and return." The implementation also skips conductors in `waiting` state (not just non-running ones) to avoid interrupting a conductor that is itself waiting for input. This was later relaxed: conductors in `waiting` or `idle` state are allowed to receive escalations (only `stopped` and `error` are skipped), since an idle/waiting conductor can still receive keys via SendKeys.
+
+3. **Escalation sent as a single-line message.** The escalation message is passed to `SendKeys` as one call rather than line-by-line, to avoid tmux interpreting embedded newlines as separate key events.
+
+4. **E2E test added** in `test/e2e/` that spins up real tmux sessions and verifies the full auto-escalation path end-to-end.

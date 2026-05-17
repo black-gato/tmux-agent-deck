@@ -126,26 +126,25 @@ Vet:
 go vet ./...
 ```
 
-## Current Feature Set
-
-See `docs/superpowers/specs/` for approved designs and `docs/superpowers/plans/` for implementation plans.
-
-Current implementation and roadmap state are tracked in `docs/superpowers/specs/2026-05-10-roadmap.md` and the milestone plans under `docs/superpowers/plans/`.
-
 ## Roadmap
 
-See `docs/superpowers/specs/2026-05-10-roadmap.md` for the full product roadmap.
+Full roadmap: [docs/superpowers/specs/2026-05-10-roadmap.md](docs/superpowers/specs/2026-05-10-roadmap.md)
 
-After the split panel TUI, planned milestones in order:
-1. **M1 Interaction Primitives** — Send to pane (`x`), Fork session (`f`), Broadcast to group (`b`)
-2. **M2 Observability** — Context window %, waiting timers, desktop notifications, output search
-3. **M3 Conductors + macOS Alerts** — Group conductor (`c`), escalate-to-conductor (`C`), waiting digest, `--notify-style`, quiet hours
-4. **M4 Session Configuration** — Project path picker, tool selection, group defaults, startup scripts
-5. **M5 Fleet Management** — Multi-select, bulk ops, archive/restore, tags
-6. **M6 Polish & Onboarding** — Session filter, help overlay, onboarding, configurable poll, headless mode
+| Milestone | Summary | Status | Spec | Plan |
+|-----------|---------|--------|------|------|
+| MVP / Split Panel TUI | Core TUI, groups, session list | complete | [spec](docs/superpowers/specs/2026-05-09-tmux-agent-deck-design.md) · [split panel](docs/superpowers/specs/2026-05-09-split-panel-tui-design.md) | [plan](docs/superpowers/plans/2026-05-10-split-panel-tui.md) |
+| M1 Interaction Primitives | Send to pane (`x`), Fork (`f`), Broadcast (`b`) | complete | [spec](docs/superpowers/specs/2026-05-10-m1-interaction-primitives-design.md) | [plan](docs/superpowers/plans/2026-05-10-m1-interaction-primitives.md) |
+| M2 Observability | Context window %, waiting timers, desktop notifications | complete | [spec](docs/superpowers/specs/2026-05-13-m2-finish-observability-design.md) | [plan](docs/superpowers/plans/2026-05-13-m2-finish-observability.md) |
+| M3 Conductors + macOS Alerts | Group conductor (`c`), escalate (`C`), digest, quiet hours | complete | — | [plan](docs/superpowers/plans/2026-05-12-m3-conductors-macos-alerts.md) |
+| M4 Session Configuration | Project path picker, tool selection, startup scripts | complete | — | [plan](docs/superpowers/plans/2026-05-14-m4-session-configuration.md) |
+| M5 Fleet Management | Multi-select, bulk ops, archive/restore, tags | complete | — | [plan](docs/superpowers/plans/2026-05-12-m5-fleet-management.md) |
+| M6 Polish & Onboarding | Session filter, help overlay, headless mode | complete | — | [plan](docs/superpowers/plans/2026-05-13-m6-polish-onboarding.md) |
+| Auto-escalation | Poller-driven SendKeys to conductor when worker goes waiting | complete | [spec](docs/superpowers/specs/2026-05-16-auto-escalation-design.md) | [plan](docs/superpowers/plans/2026-05-16-auto-escalation.md) |
 
-Implemented milestones to date:
-1. **M1 Interaction Primitives** — complete
-2. **M3 Conductors + macOS Alerts** — complete
-3. **M5 Fleet Management** — complete
-4. **M6 Polish & Onboarding** — complete
+## Known Bugs
+
+Tracked in [docs/bugs.md](docs/bugs.md). BUG-001 through BUG-010 are fixed. **BUG-011 is open** (fullscreen output view hides dialogs).
+
+Key fixed bugs that shaped the architecture:
+- **BUG-005** — idle detection now tracks actual pane-output changes (`lastOutput` map in poller); `DetectStatus` idle check runs before spinner heuristics.
+- **BUG-010** — startup `running` flash fixed by seeding `lastChange` from tmux `#{session_activity}` / DB `last_active` instead of `now`.
