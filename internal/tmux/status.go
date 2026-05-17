@@ -53,25 +53,62 @@ func lastLine(s string) string {
 	return s
 }
 
+func lastNonEmptyLine(s string) string {
+	lines := strings.Split(s, "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		line := lines[i]
+		if strings.TrimSpace(line) != "" {
+			return strings.TrimSpace(line)
+		}
+	}
+	return ""
+}
+
+func recentNonEmptyLines(s string, n int) []string {
+	lines := strings.Split(s, "\n")
+	recent := make([]string, 0, n)
+	for i := len(lines) - 1; i >= 0 && len(recent) < n; i-- {
+		line := strings.TrimSpace(lines[i])
+		if line == "" {
+			continue
+		}
+		recent = append(recent, line)
+	}
+	for i, j := 0, len(recent)-1; i < j; i, j = i+1, j-1 {
+		recent[i], recent[j] = recent[j], recent[i]
+	}
+	return recent
+}
+
+func isAgentPromptLine(line string) bool {
+	return line == ">" || line == "❯"
+}
+
 func DetectStatus(output string, lastChange, now time.Time, tool string) Status {
 	trimmed := strings.TrimRight(output, " \t\r\n")
+	lastNonEmpty := lastNonEmptyLine(trimmed)
 
 	switch tool {
 	case "aider":
-		if strings.HasSuffix(trimmed, "aider> ") || strings.HasSuffix(trimmed, "aider>") {
+		if strings.HasSuffix(lastNonEmpty, "aider>") {
 			return StatusWaiting
 		}
 	case "copilot":
-		if strings.HasSuffix(trimmed, "❯ ") || strings.HasSuffix(trimmed, "❯") ||
-			strings.HasSuffix(trimmed, "> ") || strings.HasSuffix(trimmed, ">") {
+		if lastNonEmpty == "❯" || lastNonEmpty == ">" {
 			return StatusWaiting
 		}
-	default: // "claude", "", and any other tool
+	case "claude":
+		for _, line := range recentNonEmptyLines(trimmed, 8) {
+			if isAgentPromptLine(line) {
+				return StatusWaiting
+			}
+		}
+	default: // "", "bash", and any other shell-like tool
 		ll := lastLine(trimmed)
 		if strings.HasSuffix(ll, "$") || strings.HasSuffix(ll, "#") {
 			return StatusWaiting
 		}
-		if ll == ">" {
+		if strings.TrimSpace(ll) == ">" {
 			return StatusWaiting
 		}
 	}

@@ -2,6 +2,7 @@ package tmux_test
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -47,6 +48,37 @@ func TestDetectStatusWaiting(t *testing.T) {
 		if status != tmux.StatusWaiting {
 			t.Errorf("output %q: got %q want %q", output, status, tmux.StatusWaiting)
 		}
+	}
+}
+
+func TestDetectStatusClaudePromptAboveStatusFooter(t *testing.T) {
+	now := time.Now()
+	lastChange := now.Add(-2 * time.Minute)
+	output := strings.Join([]string{
+		"※ recap: Ready to resume work.",
+		"────────────────────────",
+		"❯\u00a0",
+		"────────────────────────",
+		"  anthonymirville@host project [Sonnet 4.6] ctx:12%",
+		"  -- INSERT -- ← for agents",
+		"",
+		"",
+	}, "\n")
+
+	status := tmux.DetectStatus(output, lastChange, now, "claude")
+	if status != tmux.StatusWaiting {
+		t.Errorf("got %q want %q", status, tmux.StatusWaiting)
+	}
+}
+
+func TestDetectStatusBashDoesNotMatchOldPromptWhileCommandRuns(t *testing.T) {
+	now := time.Now()
+	lastChange := now.Add(-31 * time.Second)
+	output := "user@host:~$ sleep 35\n"
+
+	status := tmux.DetectStatus(output, lastChange, now, "bash")
+	if status != tmux.StatusIdle {
+		t.Errorf("got %q want %q", status, tmux.StatusIdle)
 	}
 }
 

@@ -43,6 +43,7 @@ type waitingNotifier interface {
 
 type TmuxSender interface {
 	SendKeys(session string, pane int, keys string) error
+	SendRawKeys(session string, pane int, keys string) error
 }
 
 func New(conn *sql.DB, tc TmuxReader) *Poller {
@@ -244,13 +245,21 @@ func (p *Poller) autoEscalate(session db.Session, output string) {
 	if conductor.ID == session.ID {
 		return
 	}
-	if conductor.TmuxSession == "" || conductor.Status == tmux.StatusStopped || conductor.Status == tmux.StatusError {
+	if conductorUnavailable(conductor) {
 		log.Printf("poller: auto-escalate %q: conductor %q unavailable", session.ID, conductor.Title)
 		return
 	}
 	if err := p.sender.SendKeys(conductor.TmuxSession, 0, escalationMessage(session, output)); err != nil {
 		log.Printf("poller: auto-escalate send keys %q: %v", session.ID, err)
+		return
 	}
+	if err := p.sender.SendRawKeys(conductor.TmuxSession, 0, "Enter"); err != nil {
+		log.Printf("poller: auto-escalate submit %q: %v", session.ID, err)
+	}
+}
+
+func conductorUnavailable(conductor db.Session) bool {
+	return conductor.TmuxSession == "" || conductor.Status == tmux.StatusStopped || conductor.Status == tmux.StatusError
 }
 
 func (p *Poller) clearSessionState(id string) {

@@ -12,10 +12,10 @@ import (
 )
 
 type stubTmux struct {
-	output    string
-	outputs   map[string]string // per-session output overrides
-	exists    bool
-	activity  time.Time
+	output     string
+	outputs    map[string]string // per-session output overrides
+	exists     bool
+	activity   time.Time
 	activities map[string]time.Time
 }
 
@@ -25,7 +25,7 @@ func (s *stubTmux) CapturePaneOutput(name string) (string, error) {
 	}
 	return s.output, nil
 }
-func (s *stubTmux) SessionExists(name string) (bool, error)       { return s.exists, nil }
+func (s *stubTmux) SessionExists(name string) (bool, error) { return s.exists, nil }
 func (s *stubTmux) SessionActivity(name string) (time.Time, error) {
 	if s.activities != nil && !s.activities[name].IsZero() {
 		return s.activities[name], nil
@@ -549,7 +549,8 @@ func TestPollerClearsContextPctWhenSessionStopped(t *testing.T) {
 }
 
 type stubSender struct {
-	calls []sentKeysCall
+	calls    []sentKeysCall
+	rawCalls []sentKeysCall
 }
 
 type sentKeysCall struct {
@@ -560,6 +561,11 @@ type sentKeysCall struct {
 
 func (s *stubSender) SendKeys(session string, pane int, keys string) error {
 	s.calls = append(s.calls, sentKeysCall{session, pane, keys})
+	return nil
+}
+
+func (s *stubSender) SendRawKeys(session string, pane int, keys string) error {
+	s.rawCalls = append(s.rawCalls, sentKeysCall{session, pane, keys})
 	return nil
 }
 
@@ -579,7 +585,16 @@ func TestAutoEscalateSendsToConductorOnWaitingTransition(t *testing.T) {
 	stub := &stubTmux{
 		outputs: map[string]string{
 			"tmux-conductor": "Thinking about this...\n",
-			"tmux-worker":    "line1\nline2\nline3\n> ",
+			"tmux-worker": strings.Join([]string{
+				"line1",
+				"line2",
+				"line3",
+				"❯ ",
+				"────────────────────────",
+				"  anthonymirville@host project [Sonnet 4.6] ctx:12%",
+				"  -- INSERT -- ← for agents",
+				"",
+			}, "\n"),
 		},
 		exists: true,
 	}
@@ -606,6 +621,18 @@ func TestAutoEscalateSendsToConductorOnWaitingTransition(t *testing.T) {
 	}
 	if !strings.Contains(got.keys, "Context:") {
 		t.Errorf("keys missing context section: %q", got.keys)
+	}
+	if !strings.Contains(got.keys, "line3") {
+		t.Errorf("keys missing useful context line: %q", got.keys)
+	}
+	if strings.Contains(got.keys, "-- INSERT --") {
+		t.Errorf("keys should omit terminal footer: %q", got.keys)
+	}
+	if len(sender.rawCalls) != 1 {
+		t.Fatalf("expected 1 SendRawKeys call, got %d", len(sender.rawCalls))
+	}
+	if sender.rawCalls[0].session != "tmux-conductor" || sender.rawCalls[0].keys != "Enter" {
+		t.Fatalf("submit call: got %#v", sender.rawCalls[0])
 	}
 }
 
