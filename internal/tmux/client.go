@@ -36,6 +36,8 @@ func resolveLaunchCommand(command string) string {
 	switch strings.TrimSpace(command) {
 	case "shell":
 		return "zsh -il"
+	case "claude-dangerous":
+		return "claude --dangerously-skip-permissions"
 	default:
 		return command
 	}

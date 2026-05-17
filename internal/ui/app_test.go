@@ -222,7 +222,8 @@ func TestNewSessionFlowCreatesSessionWithTool(t *testing.T) {
 		t.Fatalf("mode must stay new-session after step 1, got %q", m.Mode())
 	}
 
-	// Step 2: cycle tool to "aider" (right arrow from "claude"), then Enter
+	// Step 2: cycle tool to "aider" (right arrow twice from "claude"), then Enter
+	m.Update(tea.KeyMsg{Type: tea.KeyRight})
 	m.Update(tea.KeyMsg{Type: tea.KeyRight})
 	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	if m.Mode() != "new-session" {
@@ -345,7 +346,7 @@ func TestNewSessionDialogPersistsToolFlags(t *testing.T) {
 	}
 }
 
-func TestToolFlagsPassedViaPendingStartupScript(t *testing.T) {
+func TestToolFlagsPassedToNewSession(t *testing.T) {
 	conn := testutil.OpenTestDB(t)
 	fake := testutil.NewFakeTmuxClient()
 
@@ -371,18 +372,15 @@ func TestToolFlagsPassedViaPendingStartupScript(t *testing.T) {
 	if len(fake.NewSessionCalls) != 1 {
 		t.Fatalf("expected 1 NewSession call, got %d", len(fake.NewSessionCalls))
 	}
-	// When flags are set, NewSession starts the default shell (empty tool/flags).
-	// The full command is routed via PendingStartupScript with a trailing newline.
 	call := fake.NewSessionCalls[0]
-	if call.Tool != "" {
-		t.Errorf("Tool: got %q want empty (flags use default shell)", call.Tool)
+	if call.Tool != "claude" {
+		t.Errorf("Tool: got %q want %q", call.Tool, "claude")
 	}
-	if call.ToolFlags != "" {
-		t.Errorf("ToolFlags: got %q want empty (flags use default shell)", call.ToolFlags)
+	if call.ToolFlags != "--dangerously-skip-permissions" {
+		t.Errorf("ToolFlags: got %q want %q", call.ToolFlags, "--dangerously-skip-permissions")
 	}
-	want := "claude --dangerously-skip-permissions\n"
-	if m.PendingStartupScript != want {
-		t.Errorf("PendingStartupScript: got %q want %q", m.PendingStartupScript, want)
+	if m.PendingStartupScript != "" {
+		t.Errorf("PendingStartupScript should be empty when no startup script, got %q", m.PendingStartupScript)
 	}
 }
 

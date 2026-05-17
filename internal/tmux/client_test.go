@@ -91,6 +91,11 @@ func TestResolveLaunchCommand(t *testing.T) {
 			want:  "zsh -il",
 		},
 		{
+			name:  "claude-dangerous adds skip-permissions flag",
+			input: "claude-dangerous",
+			want:  "claude --dangerously-skip-permissions",
+		},
+		{
 			name:  "other commands pass through",
 			input: "claude",
 			want:  "claude",

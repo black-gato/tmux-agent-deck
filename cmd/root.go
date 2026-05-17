@@ -155,6 +155,7 @@ func launchTUI(conn *sql.DB, tc tmux.ClientIface) error {
 		if fm.PendingStartupScript != "" {
 			time.Sleep(2 * time.Second)
 			_ = tc.SendKeys(fm.PendingAttach, 0, fm.PendingStartupScript)
+			_ = tc.SendRawKeys(fm.PendingAttach, 0, "Enter")
 		}
 		if err := tc.AttachSession(fm.PendingAttach); err != nil {
 			return err
