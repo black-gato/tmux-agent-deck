@@ -78,7 +78,7 @@ When attaching from outside tmux, `ctrl+q` (`C-q` in the tmux `root` table) is t
 All tmux operations go through `tmux.ClientIface`. Tests use `testutil.FakeTmuxClient` — never mock the real tmux binary in tests.
 
 ### Schema migrations
-Sequential version checks in `migrate()` using a `metadata` table (`key=schema_version`). Current version: 4. WAL/busy_timeout pragmas run on every open before migration.
+Sequential version checks in `migrate()` using a `metadata` table (`key=schema_version`). Current version: 6. WAL/busy_timeout pragmas run on every open before migration.
 
 ## Development Workflow
 
