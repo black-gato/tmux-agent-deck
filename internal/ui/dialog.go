@@ -49,7 +49,13 @@ func (m *Model) advanceNewSessionStep() {
 		m.dialog.prompt = "Tool:"
 		m.dialog.value = ""
 	case 2:
+		m.dialog.savedToolFlags = ""
 		m.dialog.step = 3
+		m.dialog.prompt = "Tool flags (optional):"
+		m.dialog.value = ""
+	case 3:
+		m.dialog.savedToolFlags = strings.TrimSpace(m.dialog.value)
+		m.dialog.step = 4
 		m.dialog.prompt = "Startup script (optional):"
 		m.dialog.value = ""
 	}
@@ -65,6 +71,7 @@ type dialogState struct {
 	step              int
 	savedTitle        string
 	savedPath         string
+	savedToolFlags    string
 	toolOptions       []string
 	toolIdx           int
 	candidates        []string
@@ -125,7 +132,7 @@ func (m *Model) updateDialog(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case tea.KeyEsc, tea.KeyCtrlC:
 		m.mode = ""
 	case tea.KeyEnter:
-		if m.mode == "new-session" && m.dialog.step < 3 {
+		if m.mode == "new-session" && m.dialog.step < 4 {
 			m.advanceNewSessionStep()
 			return m, nil
 		}
@@ -301,6 +308,7 @@ func (m *Model) commitDialog() {
 			GroupPath:     groupPath,
 			ProjectPath:   expandPath(path),
 			Tool:          m.dialog.toolOptions[m.dialog.toolIdx],
+			ToolFlags:     m.dialog.savedToolFlags,
 			Status:        "stopped",
 			CreatedAt:     time.Now().Unix(),
 			StartupScript: strings.TrimSpace(m.dialog.value),

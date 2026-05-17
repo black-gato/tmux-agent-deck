@@ -26,9 +26,10 @@ type FakeTmuxClient struct {
 }
 
 type NewSessionCall struct {
-	Name    string
-	Dir     string
-	Command string
+	Name      string
+	Dir       string
+	Tool      string
+	ToolFlags string
 }
 
 type SentKeysCall struct {
@@ -45,8 +46,8 @@ func NewFakeTmuxClient() *FakeTmuxClient {
 	}
 }
 
-func (f *FakeTmuxClient) NewSession(name, startDir, command string) error {
-	f.NewSessionCalls = append(f.NewSessionCalls, NewSessionCall{name, startDir, command})
+func (f *FakeTmuxClient) NewSession(name, startDir, tool, toolFlags string) error {
+	f.NewSessionCalls = append(f.NewSessionCalls, NewSessionCall{name, startDir, tool, toolFlags})
 	if f.NewSessionErr != nil {
 		return f.NewSessionErr
 	}

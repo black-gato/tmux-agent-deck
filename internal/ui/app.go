@@ -941,7 +941,7 @@ func (m *Model) ensureStarted(s *db.Session) (string, bool, error) {
 		}
 	}
 	tmuxName := fmt.Sprintf("tma-%s-%s", slugifySessionTitle(s.Title), sessionIDSuffix(s.ID))
-	if err := m.tmuxC.NewSession(tmuxName, s.ProjectPath, s.Tool); err != nil {
+	if err := m.tmuxC.NewSession(tmuxName, s.ProjectPath, s.Tool, s.ToolFlags); err != nil {
 		return "", false, fmt.Errorf("start session: %w", err)
 	}
 	_ = db.UpdateSessionTmuxName(m.conn, s.ID, tmuxName)

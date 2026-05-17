@@ -301,6 +301,31 @@ func TestGetGroupConductorSession(t *testing.T) {
 	}
 }
 
+func TestGetGroupConductorSessionFallsBackToParentGroup(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	now := time.Now().Unix()
+	if err := dbpkg.CreateGroup(conn, dbpkg.Group{Path: "work", Name: "work", ConductorSessionID: "lead"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := dbpkg.CreateGroup(conn, dbpkg.Group{Path: "work/frontend", Name: "frontend"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := dbpkg.CreateSession(conn, dbpkg.Session{
+		ID: "lead", Title: "lead", GroupPath: "work", TmuxSession: "ad-lead",
+		ProjectPath: "/p", Tool: "claude", Status: "idle", CreatedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	s, err := dbpkg.GetGroupConductorSession(conn, "work/frontend")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.ID != "lead" {
+		t.Fatalf("conductor id: got %q want %q", s.ID, "lead")
+	}
+}
+
 func TestSessionStartupScriptPersistedAndRetrieved(t *testing.T) {
 	conn := testutil.OpenTestDB(t)
 	s := dbpkg.Session{
@@ -363,5 +388,29 @@ func TestListWaitingGroupChildren(t *testing.T) {
 	}
 	if sessions[0].ID != "worker-2" || sessions[1].ID != "worker-1" {
 		t.Fatalf("unexpected sessions order/content: %#v", sessions)
+	}
+}
+
+func TestToolFlagsRoundTrip(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	s := dbpkg.Session{
+		ID:          "flags-test",
+		Title:       "flagged",
+		GroupPath:   "my-sessions",
+		ProjectPath: "/p",
+		Tool:        "claude",
+		ToolFlags:   "--dangerously-skip-permissions --model opus",
+		Status:      "stopped",
+		CreatedAt:   1000,
+	}
+	if err := dbpkg.CreateSession(conn, s); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	got, err := dbpkg.GetSession(conn, "flags-test")
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if got.ToolFlags != s.ToolFlags {
+		t.Errorf("tool_flags: got %q want %q", got.ToolFlags, s.ToolFlags)
 	}
 }

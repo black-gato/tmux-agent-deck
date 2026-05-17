@@ -56,6 +56,29 @@ func TestParsePanesOutput(t *testing.T) {
 	}
 }
 
+func TestBuildLaunchCommand(t *testing.T) {
+	tests := []struct {
+		name      string
+		tool      string
+		toolFlags string
+		want      string
+	}{
+		{"no flags", "claude", "", "claude"},
+		{"with flags", "claude", "--dangerously-skip-permissions", "claude --dangerously-skip-permissions"},
+		{"multiple flags", "claude", "--model opus --dangerously-skip-permissions", "claude --model opus --dangerously-skip-permissions"},
+		{"shell tool with flags", "shell", "--flag", "zsh -il --flag"},
+		{"empty tool no flags", "", "", ""},
+		{"flags trimmed", "claude", "  --resume  ", "claude --resume"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := buildLaunchCommand(tc.tool, tc.toolFlags); got != tc.want {
+				t.Fatalf("buildLaunchCommand(%q, %q) = %q, want %q", tc.tool, tc.toolFlags, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestResolveLaunchCommand(t *testing.T) {
 	tests := []struct {
 		name    string

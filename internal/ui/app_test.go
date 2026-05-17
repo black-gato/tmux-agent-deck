@@ -92,8 +92,9 @@ func TestNewSessionDialogCreatesSession(t *testing.T) {
 	}
 	m.Update(tea.KeyMsg{Type: tea.KeyEnter}) // step 0 → 1
 	m.Update(tea.KeyMsg{Type: tea.KeyEnter}) // step 1 → 2
-	m.Update(tea.KeyMsg{Type: tea.KeyEnter}) // step 2 → 3
-	m.Update(tea.KeyMsg{Type: tea.KeyEnter}) // step 3 → commit
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter}) // step 2 → 3 (flags)
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter}) // step 3 → 4 (startup script)
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter}) // step 4 → commit
 
 	sessions, err := db.ListSessions(conn)
 	if err != nil {
@@ -136,9 +137,10 @@ func TestNewSessionPathTabCompletesSingleMatch(t *testing.T) {
 		m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
 	}
 	m.Update(tea.KeyMsg{Type: tea.KeyTab})
-	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter}) // step 1 → 2
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter}) // step 2 → 3 (flags)
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter}) // step 3 → 4 (startup script)
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter}) // step 4 → commit
 
 	sessions, err := db.ListSessions(conn)
 	if err != nil {
@@ -227,7 +229,13 @@ func TestNewSessionFlowCreatesSessionWithTool(t *testing.T) {
 		t.Fatalf("mode must stay new-session after step 2, got %q", m.Mode())
 	}
 
-	// Step 3: empty startup script, Enter to commit
+	// Step 3: empty tool flags, Enter to advance
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if m.Mode() != "new-session" {
+		t.Fatalf("mode must stay new-session after step 3, got %q", m.Mode())
+	}
+
+	// Step 4: empty startup script, Enter to commit
 	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	if m.Mode() != "" {
 		t.Errorf("expected mode cleared after commit, got %q", m.Mode())
@@ -272,7 +280,9 @@ func TestNewSessionInheritsGroupDefaults(t *testing.T) {
 	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	// Step 2: accept pre-selected tool (should be aider from group default)
 	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	// Step 3: no startup script
+	// Step 3: no tool flags
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	// Step 4: no startup script
 	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 
 	sessions, err := db.ListSessions(conn)
@@ -294,6 +304,79 @@ func TestNewSessionInheritsGroupDefaults(t *testing.T) {
 	}
 	if found.Tool != "aider" {
 		t.Errorf("Tool: got %q want %q", found.Tool, "aider")
+	}
+}
+
+func TestNewSessionDialogPersistsToolFlags(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	fake := testutil.NewFakeTmuxClient()
+	m := ui.NewModel(conn, fake, nil)
+	m.Reload()
+
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+	for _, r := range "flagged-agent" {
+		m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter}) // step 0 → 1
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter}) // step 1 → 2 (tool)
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter}) // step 2 → 3 (flags)
+	for _, r := range "--dangerously-skip-permissions" {
+		m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter}) // step 3 → 4 (startup script)
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter}) // step 4 → commit
+
+	sessions, err := db.ListSessions(conn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found *db.Session
+	for i := range sessions {
+		if sessions[i].Title == "flagged-agent" {
+			found = &sessions[i]
+			break
+		}
+	}
+	if found == nil {
+		t.Fatalf("session 'flagged-agent' not created")
+	}
+	if found.ToolFlags != "--dangerously-skip-permissions" {
+		t.Errorf("ToolFlags: got %q want %q", found.ToolFlags, "--dangerously-skip-permissions")
+	}
+}
+
+func TestToolFlagsPassedToNewSession(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	fake := testutil.NewFakeTmuxClient()
+
+	if err := db.CreateSession(conn, db.Session{
+		ID:          "abc12345-0000-0000-0000-000000000099",
+		Title:       "flagged",
+		GroupPath:   "my-sessions",
+		ProjectPath: "/tmp",
+		Tool:        "claude",
+		ToolFlags:   "--dangerously-skip-permissions",
+		Status:      "stopped",
+		CreatedAt:   1000,
+	}); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	m := ui.NewModel(conn, fake, nil)
+	m.Reload()
+
+	moveCursorToSession(t, m, "flagged")
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	if len(fake.NewSessionCalls) != 1 {
+		t.Fatalf("expected 1 NewSession call, got %d", len(fake.NewSessionCalls))
+	}
+	call := fake.NewSessionCalls[0]
+	if call.Tool != "claude" {
+		t.Errorf("Tool: got %q want %q", call.Tool, "claude")
+	}
+	if call.ToolFlags != "--dangerously-skip-permissions" {
+		t.Errorf("ToolFlags: got %q want %q", call.ToolFlags, "--dangerously-skip-permissions")
 	}
 }
 

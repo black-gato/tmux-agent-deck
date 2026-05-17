@@ -45,7 +45,7 @@ func Execute() error {
 		return err
 	}
 	defer conn.Close()
-	return executeWith(ctx, conn, nil, io.Discard, nil)
+	return executeWith(ctx, conn, nil, os.Stdout, nil)
 }
 
 // RunWith is used by tests to inject args and capture output without os.Exit.

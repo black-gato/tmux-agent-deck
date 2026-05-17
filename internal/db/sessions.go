@@ -2,6 +2,7 @@ package db
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -20,6 +21,7 @@ type Session struct {
 	Archived      bool
 	Tags          string
 	StartupScript string
+	ToolFlags     string
 }
 
 func CreateSession(conn *sql.DB, s Session) error {
@@ -28,9 +30,9 @@ func CreateSession(conn *sql.DB, s Session) error {
 		archived = 1
 	}
 	_, err := conn.Exec(
-		`INSERT INTO sessions (id, title, group_path, tmux_session, project_path, tool, status, created_at, last_active, notes, archived, tags, startup_script)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		s.ID, s.Title, s.GroupPath, s.TmuxSession, s.ProjectPath, s.Tool, s.Status, s.CreatedAt, s.LastActive, s.Notes, archived, s.Tags, s.StartupScript,
+		`INSERT INTO sessions (id, title, group_path, tmux_session, project_path, tool, status, created_at, last_active, notes, archived, tags, startup_script, tool_flags)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		s.ID, s.Title, s.GroupPath, s.TmuxSession, s.ProjectPath, s.Tool, s.Status, s.CreatedAt, s.LastActive, s.Notes, archived, s.Tags, s.StartupScript, s.ToolFlags,
 	)
 	return err
 }
@@ -39,9 +41,9 @@ func GetSession(conn *sql.DB, id string) (Session, error) {
 	var s Session
 	var archived int
 	err := conn.QueryRow(
-		`SELECT id, title, group_path, tmux_session, project_path, tool, status, created_at, last_active, notes, archived, tags, startup_script
+		`SELECT id, title, group_path, tmux_session, project_path, tool, status, created_at, last_active, notes, archived, tags, startup_script, tool_flags
 		 FROM sessions WHERE id = ?`, id,
-	).Scan(&s.ID, &s.Title, &s.GroupPath, &s.TmuxSession, &s.ProjectPath, &s.Tool, &s.Status, &s.CreatedAt, &s.LastActive, &s.Notes, &archived, &s.Tags, &s.StartupScript)
+	).Scan(&s.ID, &s.Title, &s.GroupPath, &s.TmuxSession, &s.ProjectPath, &s.Tool, &s.Status, &s.CreatedAt, &s.LastActive, &s.Notes, &archived, &s.Tags, &s.StartupScript, &s.ToolFlags)
 	if err != nil {
 		return Session{}, fmt.Errorf("get session %q: %w", id, err)
 	}
@@ -53,9 +55,9 @@ func GetSessionByTitle(conn *sql.DB, title string) (Session, error) {
 	var s Session
 	var archived int
 	err := conn.QueryRow(
-		`SELECT id, title, group_path, tmux_session, project_path, tool, status, created_at, last_active, notes, archived, tags, startup_script
+		`SELECT id, title, group_path, tmux_session, project_path, tool, status, created_at, last_active, notes, archived, tags, startup_script, tool_flags
 		 FROM sessions WHERE title = ? LIMIT 1`, title,
-	).Scan(&s.ID, &s.Title, &s.GroupPath, &s.TmuxSession, &s.ProjectPath, &s.Tool, &s.Status, &s.CreatedAt, &s.LastActive, &s.Notes, &archived, &s.Tags, &s.StartupScript)
+	).Scan(&s.ID, &s.Title, &s.GroupPath, &s.TmuxSession, &s.ProjectPath, &s.Tool, &s.Status, &s.CreatedAt, &s.LastActive, &s.Notes, &archived, &s.Tags, &s.StartupScript, &s.ToolFlags)
 	if err != nil {
 		return Session{}, fmt.Errorf("get session by title %q: %w", title, err)
 	}
@@ -64,16 +66,29 @@ func GetSessionByTitle(conn *sql.DB, title string) (Session, error) {
 }
 
 func GetGroupConductorSession(conn *sql.DB, groupPath string) (Session, error) {
+	for _, path := range conductorLookupPaths(groupPath) {
+		s, err := getExactGroupConductorSession(conn, path)
+		if err == nil {
+			return s, nil
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return Session{}, err
+		}
+	}
+	return Session{}, fmt.Errorf("get group conductor %q: %w", groupPath, sql.ErrNoRows)
+}
+
+func getExactGroupConductorSession(conn *sql.DB, groupPath string) (Session, error) {
 	var s Session
 	var archived int
 	err := conn.QueryRow(
-		`SELECT s.id, s.title, s.group_path, s.tmux_session, s.project_path, s.tool, s.status, s.created_at, s.last_active, s.notes, s.archived, s.tags, s.startup_script
+		`SELECT s.id, s.title, s.group_path, s.tmux_session, s.project_path, s.tool, s.status, s.created_at, s.last_active, s.notes, s.archived, s.tags, s.startup_script, s.tool_flags
 		 FROM sessions s
-		 JOIN groups g ON g.path = s.group_path
-		 WHERE g.path = ? AND g.conductor_session_id = s.id
+		 JOIN groups g ON g.conductor_session_id = s.id
+		 WHERE g.path = ? AND g.conductor_session_id != ''
 		 LIMIT 1`,
 		groupPath,
-	).Scan(&s.ID, &s.Title, &s.GroupPath, &s.TmuxSession, &s.ProjectPath, &s.Tool, &s.Status, &s.CreatedAt, &s.LastActive, &s.Notes, &archived, &s.Tags, &s.StartupScript)
+	).Scan(&s.ID, &s.Title, &s.GroupPath, &s.TmuxSession, &s.ProjectPath, &s.Tool, &s.Status, &s.CreatedAt, &s.LastActive, &s.Notes, &archived, &s.Tags, &s.StartupScript, &s.ToolFlags)
 	if err != nil {
 		return Session{}, fmt.Errorf("get group conductor %q: %w", groupPath, err)
 	}
@@ -81,9 +96,26 @@ func GetGroupConductorSession(conn *sql.DB, groupPath string) (Session, error) {
 	return s, nil
 }
 
+func conductorLookupPaths(groupPath string) []string {
+	groupPath = strings.Trim(groupPath, "/")
+	if groupPath == "" {
+		return nil
+	}
+	paths := []string{groupPath}
+	for {
+		idx := strings.LastIndex(groupPath, "/")
+		if idx == -1 {
+			break
+		}
+		groupPath = groupPath[:idx]
+		paths = append(paths, groupPath)
+	}
+	return paths
+}
+
 func ListSessions(conn *sql.DB) ([]Session, error) {
 	rows, err := conn.Query(
-		`SELECT id, title, group_path, tmux_session, project_path, tool, status, created_at, last_active, notes, archived, tags, startup_script
+		`SELECT id, title, group_path, tmux_session, project_path, tool, status, created_at, last_active, notes, archived, tags, startup_script, tool_flags
 		 FROM sessions ORDER BY created_at DESC`,
 	)
 	if err != nil {
@@ -95,7 +127,7 @@ func ListSessions(conn *sql.DB) ([]Session, error) {
 
 func ListSessionsByGroup(conn *sql.DB, groupPath string) ([]Session, error) {
 	rows, err := conn.Query(
-		`SELECT id, title, group_path, tmux_session, project_path, tool, status, created_at, last_active, notes, archived, tags, startup_script
+		`SELECT id, title, group_path, tmux_session, project_path, tool, status, created_at, last_active, notes, archived, tags, startup_script, tool_flags
 		 FROM sessions WHERE group_path = ? ORDER BY created_at DESC`, groupPath,
 	)
 	if err != nil {
@@ -107,7 +139,7 @@ func ListSessionsByGroup(conn *sql.DB, groupPath string) ([]Session, error) {
 
 func ListWaitingGroupChildren(conn *sql.DB, groupPath string) ([]Session, error) {
 	rows, err := conn.Query(
-		`SELECT s.id, s.title, s.group_path, s.tmux_session, s.project_path, s.tool, s.status, s.created_at, s.last_active, s.notes, s.archived, s.tags, s.startup_script
+		`SELECT s.id, s.title, s.group_path, s.tmux_session, s.project_path, s.tool, s.status, s.created_at, s.last_active, s.notes, s.archived, s.tags, s.startup_script, s.tool_flags
 		 FROM sessions s
 		 JOIN groups g ON g.path = s.group_path
 		 WHERE s.group_path = ? AND s.status = ? AND s.id != g.conductor_session_id
@@ -267,7 +299,7 @@ func scanSessions(rows *sql.Rows) ([]Session, error) {
 	for rows.Next() {
 		var s Session
 		var archived int
-		if err := rows.Scan(&s.ID, &s.Title, &s.GroupPath, &s.TmuxSession, &s.ProjectPath, &s.Tool, &s.Status, &s.CreatedAt, &s.LastActive, &s.Notes, &archived, &s.Tags, &s.StartupScript); err != nil {
+		if err := rows.Scan(&s.ID, &s.Title, &s.GroupPath, &s.TmuxSession, &s.ProjectPath, &s.Tool, &s.Status, &s.CreatedAt, &s.LastActive, &s.Notes, &archived, &s.Tags, &s.StartupScript, &s.ToolFlags); err != nil {
 			return nil, err
 		}
 		s.Archived = archived == 1

@@ -24,7 +24,7 @@ var sessionStartCmd = &cobra.Command{
 		}
 		tc := tmux.NewClient()
 		tmuxName := fmt.Sprintf("ad-%s", s.ID[:8])
-		if err := tc.NewSession(tmuxName, s.ProjectPath, s.Tool); err != nil {
+		if err := tc.NewSession(tmuxName, s.ProjectPath, s.Tool, s.ToolFlags); err != nil {
 			return fmt.Errorf("start tmux session: %w", err)
 		}
 		if err := db.UpdateSessionTmuxName(rootDB, s.ID, tmuxName); err != nil {
