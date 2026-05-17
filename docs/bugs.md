@@ -2,7 +2,56 @@
 
 Tracked bugs in tmux-agent-deck. Newest first. Status: `open`, `in-progress`, `fixed`.
 
-Current repo status as of 2026-05-17: All bugs BUG-001 through BUG-012 are fixed. No open bugs.
+Current repo status as of 2026-05-17: BUG-013 is open. BUG-001 through BUG-012 are fixed.
+
+---
+
+## BUG-013: per-session tool flags are not passed to the agent process
+
+**Reported:** 2026-05-17
+**Status:** open
+**Severity:** high (the flags field in the new-session dialog has no effect)
+
+### Symptom
+
+Creating a session with `ToolFlags` set (e.g. `--dangerously-skip-permissions`, `--model opus`, `--resume`) starts the agent normally but ignores the flags entirely. The flags are stored in the DB and visible in the detail panel, but the agent process does not receive them as command-line arguments.
+
+### What was tried
+
+Two approaches were attempted and both failed to reliably apply flags:
+
+**Approach 1 — pass combined string to `tmux new-session`**
+
+`buildLaunchCommand("claude", "--flags")` returns `"claude --flags"` as a single string, passed as the final positional arg to `tmux new-session`. Tmux is expected to run `$SHELL -c "claude --flags"`, which should correctly parse flags. In practice the agent started but flags were not applied. Root cause not confirmed — possible tmux version behavior or PATH interaction.
+
+**Approach 2 — start bare shell, send command via `send-keys -l`**
+
+`ensureStarted` started the session with no shell command (bare zsh). `PendingStartupScript` was set to `"claude --flags\n"` and sent via `tmux send-keys -l` before attach. The literal `\n` (LF byte, 0x0A) was intended to execute the command, but this is unreliable: PTY canonical mode may not treat a bare LF as Enter in all configurations.
+
+### Current workaround
+
+A `claude-dangerous` preset tool option was added that maps to `claude --dangerously-skip-permissions` via `resolveLaunchCommand`. This is a hardcoded workaround for the most common flag use case; it does not solve the general problem.
+
+### Root cause (suspected)
+
+The interaction between `exec.Command("tmux", ...)`, tmux's shell-command argument handling, and the user's shell environment needs more investigation. Specifically:
+
+1. Whether tmux correctly invokes `$SHELL -c "tool --flags"` when the shell command is passed as a single quoted string via execve (no shell interpolation).
+2. Whether the user's login PATH (needed to find the `claude` binary) is available in the non-login shell tmux spawns.
+3. Whether `tmux send-keys -l` with a literal LF byte reliably executes a command in all PTY/shell configurations.
+
+### Planned fix
+
+Investigate and confirm which mechanism correctly passes argv to the agent. Likely correct approaches:
+
+1. **Explicit shell invocation** — change `NewSession` to always wrap the command: `zsh -l -c 'claude --flags'`. The login shell (`-l`) ensures PATH is populated; quoting the command string as a single arg to `-c` ensures flags are passed correctly.
+2. **Send-keys with explicit Enter** — keep the bare-shell approach but replace the `\n` byte in `PendingStartupScript` with a separate `SendRawKeys(session, 0, "Enter")` call after `SendKeys`, matching the pattern used for conductor escalation.
+
+### Files likely touched
+
+- `internal/tmux/client.go` — `NewSession`, `buildLaunchCommand`
+- `internal/ui/app.go` — `ensureStarted`
+- `cmd/root.go` — `PendingStartupScript` send logic
 
 ---
 
