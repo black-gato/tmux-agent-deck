@@ -552,12 +552,17 @@ func (m *Model) RenderDetailPanel(w, h int) string {
 	lines = append(lines, fmt.Sprintf(" group: %s", s.GroupPath))
 	lines = append(lines, fmt.Sprintf(" conductor: %t", m.isConductorSession(s)))
 	lines = append(lines, fmt.Sprintf(" tags: %s", s.Tags))
+	toolLine := " tool: " + s.Tool
+	if s.ToolFlags != "" {
+		toolLine += "  flags: " + s.ToolFlags
+	}
+	lines = append(lines, toolLine)
 	if pct, ok := m.contextPct[s.ID]; ok && pct != nil {
 		lines = append(lines, fmt.Sprintf(" context: %s", RenderContextBar(*pct)))
 	}
 	lines = append(lines, " "+renderPaneList(m.panes, m.activePaneIdx))
 
-	const sessionHeaderLines = 6
+	const sessionHeaderLines = 7
 	const notesLines = 5
 	outputH := h - sessionHeaderLines - notesLines - 1
 	if outputH < 0 {
