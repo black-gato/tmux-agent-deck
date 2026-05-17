@@ -140,6 +140,7 @@ Full roadmap: [docs/superpowers/specs/2026-05-10-roadmap.md](docs/superpowers/sp
 | M5 Fleet Management | Multi-select, bulk ops, archive/restore, tags | complete | — | [plan](docs/superpowers/plans/2026-05-12-m5-fleet-management.md) |
 | M6 Polish & Onboarding | Session filter, help overlay, headless mode | complete | — | [plan](docs/superpowers/plans/2026-05-13-m6-polish-onboarding.md) |
 | Auto-escalation | Poller-driven SendKeys to conductor when worker goes waiting | complete | [spec](docs/superpowers/specs/2026-05-16-auto-escalation-design.md) | [plan](docs/superpowers/plans/2026-05-16-auto-escalation.md) |
+| Tool Flags | Per-session agent flags (schema v6); `claude-dangerous` preset | partial (BUG-013) | [spec](docs/superpowers/specs/2026-05-17-tool-flags-design.md) | — |
 
 ## Known Bugs
 
