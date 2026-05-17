@@ -919,7 +919,7 @@ func TestMoveSelectedSessionsToPromptedGroup(t *testing.T) {
 	}
 }
 
-func TestSendPaneSendsToSelectedRunningSessions(t *testing.T) {
+func TestSendPaneSendsToSelectedActiveSessions(t *testing.T) {
 	conn := testutil.OpenTestDB(t)
 	fake := testutil.NewFakeTmuxClient()
 	db.CreateSession(conn, db.Session{
@@ -949,8 +949,9 @@ func TestSendPaneSendsToSelectedRunningSessions(t *testing.T) {
 	}
 	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 
-	if len(fake.SentKeys) != 1 {
-		t.Fatalf("expected 1 SendKeys call, got %d", len(fake.SentKeys))
+	// running (s1) and waiting (s2) should receive keys; stopped (s3) should not
+	if len(fake.SentKeys) != 2 {
+		t.Fatalf("expected 2 SendKeys calls (running + waiting), got %d", len(fake.SentKeys))
 	}
 	for _, call := range fake.SentKeys {
 		if call.Keys != "hello" {
@@ -1367,7 +1368,16 @@ func TestDetailPanelShowsConductorState(t *testing.T) {
 func TestCEscalatesWaitingSessionToConductor(t *testing.T) {
 	conn := testutil.OpenTestDB(t)
 	fake := testutil.NewFakeTmuxClient()
-	fake.Sessions["ad-worker"] = "Investigating flaky test\nNeed decision on retry policy\n> "
+	fake.Sessions["ad-worker"] = strings.Join([]string{
+		"Investigating flaky test",
+		"Need decision on retry policy",
+		"❯ ",
+		"────────────────────────",
+		"  anthonymirville@host project [Sonnet 4.6] ctx:12%",
+		"  -- INSERT -- ← for agents",
+		"",
+		"",
+	}, "\n")
 	if err := db.CreateGroup(conn, db.Group{Path: "work", Name: "work", Expanded: true, ConductorSessionID: "lead"}); err != nil {
 		t.Fatal(err)
 	}
@@ -1405,6 +1415,86 @@ func TestCEscalatesWaitingSessionToConductor(t *testing.T) {
 	}
 	if !strings.Contains(call.Keys, "Need decision on retry policy") {
 		t.Fatalf("message missing output context: %q", call.Keys)
+	}
+	if len(fake.SentRawKeys) != 1 {
+		t.Fatalf("expected 1 SendRawKeys call, got %d", len(fake.SentRawKeys))
+	}
+	if fake.SentRawKeys[0].Session != "ad-lead" || fake.SentRawKeys[0].Keys != "Enter" {
+		t.Fatalf("submit call: got %#v", fake.SentRawKeys[0])
+	}
+}
+
+func TestCEscalatesToIdleConductor(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	fake := testutil.NewFakeTmuxClient()
+	fake.Sessions["ad-worker"] = "Need a decision\n> "
+	if err := db.CreateGroup(conn, db.Group{Path: "work", Name: "work", Expanded: true, ConductorSessionID: "lead"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.CreateSession(conn, db.Session{
+		ID: "lead", Title: "conductor", GroupPath: "work", TmuxSession: "ad-lead",
+		ProjectPath: "/p", Tool: "claude", Status: "idle", CreatedAt: 1001,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.CreateSession(conn, db.Session{
+		ID: "worker", Title: "worker", GroupPath: "work", TmuxSession: "ad-worker",
+		ProjectPath: "/p", Tool: "claude", Status: "waiting", CreatedAt: 1000,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	m := ui.NewModel(conn, fake, nil)
+	m.Reload()
+	moveCursorToSession(t, m, "worker")
+	m.Reload()
+
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'C'}})
+
+	if len(fake.SentKeys) != 1 {
+		t.Fatalf("expected 1 SendKeys call, got %d", len(fake.SentKeys))
+	}
+	if fake.SentKeys[0].Session != "ad-lead" {
+		t.Fatalf("session: got %q want ad-lead", fake.SentKeys[0].Session)
+	}
+	if len(fake.SentRawKeys) != 1 || fake.SentRawKeys[0].Keys != "Enter" {
+		t.Fatalf("expected Enter submit, got %#v", fake.SentRawKeys)
+	}
+}
+
+func TestCEscalatesToParentGroupConductor(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	fake := testutil.NewFakeTmuxClient()
+	fake.Sessions["ad-worker"] = "Need a decision\n> "
+	if err := db.CreateGroup(conn, db.Group{Path: "work", Name: "work", Expanded: true, ConductorSessionID: "lead"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.CreateGroup(conn, db.Group{Path: "work/frontend", Name: "frontend", Expanded: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.CreateSession(conn, db.Session{
+		ID: "lead", Title: "conductor", GroupPath: "work", TmuxSession: "ad-lead",
+		ProjectPath: "/p", Tool: "claude", Status: "idle", CreatedAt: 1001,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.CreateSession(conn, db.Session{
+		ID: "worker", Title: "worker", GroupPath: "work/frontend", TmuxSession: "ad-worker",
+		ProjectPath: "/p", Tool: "claude", Status: "waiting", CreatedAt: 1000,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	m := ui.NewModel(conn, fake, nil)
+	m.Reload()
+	moveCursorToSession(t, m, "worker")
+	m.Reload()
+
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'C'}})
+
+	if len(fake.SentKeys) != 1 {
+		t.Fatalf("expected 1 SendKeys call, got %d", len(fake.SentKeys))
+	}
+	if fake.SentKeys[0].Session != "ad-lead" {
+		t.Fatalf("session: got %q want ad-lead", fake.SentKeys[0].Session)
 	}
 }
 
@@ -1668,7 +1758,7 @@ func TestBroadcastIncludesSubGroups(t *testing.T) {
 	}
 }
 
-func TestBroadcastSkipsNonRunning(t *testing.T) {
+func TestBroadcastSkipsStoppedAndError(t *testing.T) {
 	conn := testutil.OpenTestDB(t)
 	fake := testutil.NewFakeTmuxClient()
 
@@ -1681,7 +1771,13 @@ func TestBroadcastSkipsNonRunning(t *testing.T) {
 	db.CreateSession(conn, db.Session{
 		ID: "s2", Title: "b", GroupPath: "my-sessions",
 		TmuxSession: "ad-s2", ProjectPath: "/p", Tool: "claude",
-		Status: "stopped", CreatedAt: 1001,
+		Status: "waiting", CreatedAt: 1001,
+	})
+	fake.Sessions["ad-s2"] = "> "
+	db.CreateSession(conn, db.Session{
+		ID: "s3", Title: "c", GroupPath: "my-sessions",
+		TmuxSession: "ad-s3", ProjectPath: "/p", Tool: "claude",
+		Status: "stopped", CreatedAt: 1002,
 	})
 
 	m := ui.NewModel(conn, fake, nil)
@@ -1693,8 +1789,46 @@ func TestBroadcastSkipsNonRunning(t *testing.T) {
 	}
 	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 
+	if len(fake.SentKeys) != 2 {
+		t.Fatalf("expected 2 SendKeys calls (running + waiting), got %d", len(fake.SentKeys))
+	}
+	sent := map[string]bool{}
+	for _, sk := range fake.SentKeys {
+		sent[sk.Session] = true
+	}
+	if !sent["ad-s1"] {
+		t.Error("running session ad-s1 should receive broadcast")
+	}
+	if !sent["ad-s2"] {
+		t.Error("waiting session ad-s2 should receive broadcast")
+	}
+	if sent["ad-s3"] {
+		t.Error("stopped session ad-s3 should not receive broadcast")
+	}
+}
+
+func TestBroadcastSendsToWaitingSession(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	fake := testutil.NewFakeTmuxClient()
+
+	db.CreateSession(conn, db.Session{
+		ID: "s1", Title: "a", GroupPath: "my-sessions",
+		TmuxSession: "ad-s1", ProjectPath: "/p", Tool: "claude",
+		Status: "waiting", CreatedAt: 1000,
+	})
+	fake.Sessions["ad-s1"] = "> "
+
+	m := ui.NewModel(conn, fake, nil)
+	m.Reload()
+
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'b'}})
+	for _, r := range "continue" {
+		m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
 	if len(fake.SentKeys) != 1 {
-		t.Fatalf("expected 1 SendKeys call (running only), got %d", len(fake.SentKeys))
+		t.Fatalf("expected 1 SendKeys call for waiting session, got %d", len(fake.SentKeys))
 	}
 	if fake.SentKeys[0].Session != "ad-s1" {
 		t.Errorf("expected ad-s1, got %q", fake.SentKeys[0].Session)
@@ -2080,5 +2214,54 @@ func TestDetailPanelNoContextLineWhenPctNil(t *testing.T) {
 	view := m.View()
 	if strings.Contains(view, "context:") {
 		t.Fatalf("expected no 'context:' line when pct is nil, got:\n%s", view)
+	}
+}
+
+func TestSendPaneMultiSelectSkipsStoppedSessions(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	fake := testutil.NewFakeTmuxClient()
+	db.CreateSession(conn, db.Session{
+		ID: "s1", Title: "worker-a", GroupPath: "my-sessions", TmuxSession: "ad-s1",
+		ProjectPath: "/p", Tool: "claude", Status: "waiting", CreatedAt: 1002,
+	})
+	db.CreateSession(conn, db.Session{
+		ID: "s2", Title: "worker-b", GroupPath: "my-sessions", TmuxSession: "ad-s2",
+		ProjectPath: "/p", Tool: "claude", Status: "running", CreatedAt: 1001,
+	})
+	db.CreateSession(conn, db.Session{
+		ID: "s3", Title: "worker-c", GroupPath: "my-sessions", TmuxSession: "ad-s3",
+		ProjectPath: "/p", Tool: "claude", Status: "stopped", CreatedAt: 1000,
+	})
+	m := ui.NewModel(conn, fake, nil)
+	m.Reload()
+
+	// select all three sessions then send
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	m.Update(tea.KeyMsg{Type: tea.KeySpace})
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	m.Update(tea.KeyMsg{Type: tea.KeySpace})
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	m.Update(tea.KeyMsg{Type: tea.KeySpace})
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
+	for _, r := range "go" {
+		m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	if len(fake.SentKeys) != 2 {
+		t.Fatalf("expected 2 SendKeys calls (waiting + running), got %d", len(fake.SentKeys))
+	}
+	sent := map[string]bool{}
+	for _, sk := range fake.SentKeys {
+		sent[sk.Session] = true
+	}
+	if !sent["ad-s1"] {
+		t.Error("waiting session ad-s1 should receive keys")
+	}
+	if !sent["ad-s2"] {
+		t.Error("running session ad-s2 should receive keys")
+	}
+	if sent["ad-s3"] {
+		t.Error("stopped session ad-s3 should not receive keys")
 	}
 }

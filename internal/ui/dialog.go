@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/black-gato/tmux-agent-deck/internal/db"
+	"github.com/black-gato/tmux-agent-deck/internal/tmux"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/google/uuid"
 )
@@ -384,7 +385,7 @@ func (m *Model) commitDialog() {
 					continue
 				}
 				s := item.Session
-				if s.Status != "running" || s.TmuxSession == "" {
+				if s.TmuxSession == "" || s.Status == tmux.StatusStopped || s.Status == tmux.StatusError {
 					continue
 				}
 				if err := m.sendToPane(s.TmuxSession, 0); err != nil {
@@ -440,7 +441,7 @@ func (m *Model) commitDialog() {
 			return
 		}
 		for _, s := range m.sessions {
-			if s.Status != "running" || s.TmuxSession == "" {
+			if s.TmuxSession == "" || s.Status == tmux.StatusStopped || s.Status == tmux.StatusError {
 				continue
 			}
 			inScope := s.GroupPath == groupPath
