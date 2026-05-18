@@ -28,11 +28,13 @@ type Poller struct {
 	now          func() time.Time
 	interval     time.Duration
 	mu           sync.RWMutex
-	lastChange   map[string]time.Time
-	lastOutput   map[string]string
-	waitingSince map[string]time.Time
-	contextPct   map[string]*int
-	done         chan struct{}
+	lastChange        map[string]time.Time
+	lastOutput        map[string]string
+	waitingSince      map[string]time.Time
+	contextPct        map[string]*int
+	conductorBaseline map[string]string
+	processedReplies  map[string]bool
+	done              chan struct{}
 }
 
 type waitingNotifier interface {
@@ -72,11 +74,13 @@ func NewWithClockInterval(conn *sql.DB, tc TmuxReader, notifier waitingNotifier,
 		notifier:     notifier,
 		now:          now,
 		interval:     interval,
-		lastChange:   make(map[string]time.Time),
-		lastOutput:   make(map[string]string),
-		waitingSince: make(map[string]time.Time),
-		contextPct:   make(map[string]*int),
-		done:         make(chan struct{}),
+		lastChange:        make(map[string]time.Time),
+		lastOutput:        make(map[string]string),
+		waitingSince:      make(map[string]time.Time),
+		contextPct:        make(map[string]*int),
+		conductorBaseline: make(map[string]string),
+		processedReplies:  make(map[string]bool),
+		done:              make(chan struct{}),
 	}
 }
 
@@ -176,6 +180,7 @@ func (p *Poller) PollOnce() {
 	for groupPath := range digestGroups {
 		p.notifyDigest(groupPath)
 	}
+	p.scanConductorReplies(sessions)
 }
 
 func (p *Poller) notifyWaiting(session db.Session) {
@@ -255,6 +260,70 @@ func (p *Poller) autoEscalate(session db.Session, output string) {
 	}
 	if err := p.sender.SendRawKeys(conductor.TmuxSession, 0, "Enter"); err != nil {
 		log.Printf("poller: auto-escalate submit %q: %v", session.ID, err)
+	}
+}
+
+func (p *Poller) scanConductorReplies(sessions []db.Session) {
+	if p.sender == nil {
+		return
+	}
+	groups, err := db.ListGroups(p.conn)
+	if err != nil {
+		log.Printf("poller: scan replies list groups: %v", err)
+		return
+	}
+	conductorIDs := make(map[string]bool, len(groups))
+	for _, g := range groups {
+		if g.ConductorSessionID != "" {
+			conductorIDs[g.ConductorSessionID] = true
+		}
+	}
+	for _, s := range sessions {
+		if !conductorIDs[s.ID] || s.TmuxSession == "" {
+			continue
+		}
+		out, err := p.tmux.CapturePaneOutput(s.TmuxSession)
+		if err != nil {
+			continue
+		}
+		p.mu.Lock()
+		baseline, seen := p.conductorBaseline[s.ID]
+		if !seen {
+			p.conductorBaseline[s.ID] = out
+			p.mu.Unlock()
+			continue
+		}
+		newOut := NewOutputSince(baseline, out)
+		p.mu.Unlock()
+
+		for _, block := range ParseReplyBlocks(newOut) {
+			fingerprint := block.WorkerID + ":" + block.Body
+			p.mu.Lock()
+			if p.processedReplies[fingerprint] {
+				p.mu.Unlock()
+				continue
+			}
+			p.processedReplies[fingerprint] = true
+			p.mu.Unlock()
+
+			worker, err := db.GetSession(p.conn, block.WorkerID)
+			if err != nil {
+				log.Printf("poller: reply routing: unknown worker %q", block.WorkerID)
+				continue
+			}
+			if worker.Status == tmux.StatusStopped || worker.Status == tmux.StatusError || worker.TmuxSession == "" {
+				log.Printf("poller: reply routing: worker %q not active (status=%s)", block.WorkerID, worker.Status)
+				continue
+			}
+			msg := "Conductor reply: " + block.Body
+			if err := p.sender.SendKeys(worker.TmuxSession, 0, msg); err != nil {
+				log.Printf("poller: reply routing send %q: %v", block.WorkerID, err)
+				continue
+			}
+			if err := p.sender.SendRawKeys(worker.TmuxSession, 0, "Enter"); err != nil {
+				log.Printf("poller: reply routing submit %q: %v", block.WorkerID, err)
+			}
+		}
 	}
 }
 

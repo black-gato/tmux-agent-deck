@@ -748,3 +748,161 @@ func TestAutoEscalateSkipsWhenConductorUnavailable(t *testing.T) {
 		t.Fatalf("expected 0 SendKeys calls when conductor unavailable, got %d", len(sender.calls))
 	}
 }
+
+func TestReplyRoutingSendsToWorker(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	now := time.Now().Unix()
+	db.CreateGroup(conn, db.Group{Path: "work", Name: "work", ConductorSessionID: "conductor"})
+	db.CreateSession(conn, db.Session{
+		ID: "conductor", Title: "conductor", GroupPath: "work", TmuxSession: "tmux-conductor",
+		ProjectPath: "/p", Tool: "claude", Status: "running", CreatedAt: now,
+	})
+	db.CreateSession(conn, db.Session{
+		ID: "worker-1", Title: "worker", GroupPath: "work", TmuxSession: "tmux-worker",
+		ProjectPath: "/p", Tool: "claude", Status: "waiting", CreatedAt: now,
+	})
+
+	conductorOutput := "some prior output\n@deck-reply worker=worker-1\nfix the failing test\n@deck-end"
+	stub := &stubTmux{
+		outputs: map[string]string{
+			"tmux-conductor": conductorOutput,
+			"tmux-worker":    "Some output\n> ",
+		},
+		exists: true,
+	}
+	sender := &stubSender{}
+	p := state.New(conn, stub)
+	p.SetSender(sender)
+	p.PollOnce() // first pass: establishes baseline for conductor
+	p.PollOnce() // second pass: no new output → no reply
+
+	if len(sender.calls) != 0 {
+		t.Fatalf("expected 0 calls on first two polls (baseline pass then no new output), got %d", len(sender.calls))
+	}
+
+	// Simulate new reply appearing after baseline
+	stub.outputs["tmux-conductor"] = conductorOutput + "\n@deck-reply worker=worker-1\nunblock: run go test\n@deck-end"
+	p.PollOnce()
+
+	var replyCalls []sentKeysCall
+	for _, c := range sender.calls {
+		if c.session == "tmux-worker" {
+			replyCalls = append(replyCalls, c)
+		}
+	}
+	if len(replyCalls) == 0 {
+		t.Fatal("expected a SendKeys call to worker session")
+	}
+	if !strings.Contains(replyCalls[0].keys, "Conductor reply:") {
+		t.Errorf("reply missing prefix: %q", replyCalls[0].keys)
+	}
+	if !strings.Contains(replyCalls[0].keys, "unblock: run go test") {
+		t.Errorf("reply missing body: %q", replyCalls[0].keys)
+	}
+}
+
+func TestReplyRoutingDuplicateNotResent(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	now := time.Now().Unix()
+	db.CreateGroup(conn, db.Group{Path: "work", Name: "work", ConductorSessionID: "conductor"})
+	db.CreateSession(conn, db.Session{
+		ID: "conductor", Title: "conductor", GroupPath: "work", TmuxSession: "tmux-conductor",
+		ProjectPath: "/p", Tool: "claude", Status: "running", CreatedAt: now,
+	})
+	db.CreateSession(conn, db.Session{
+		ID: "worker-1", Title: "worker", GroupPath: "work", TmuxSession: "tmux-worker",
+		ProjectPath: "/p", Tool: "claude", Status: "waiting", CreatedAt: now,
+	})
+
+	baseOutput := "baseline"
+	replyOutput := baseOutput + "\n@deck-reply worker=worker-1\ndo the thing\n@deck-end"
+	stub := &stubTmux{
+		outputs: map[string]string{
+			"tmux-conductor": baseOutput,
+			"tmux-worker":    "> ",
+		},
+		exists: true,
+	}
+	sender := &stubSender{}
+	p := state.New(conn, stub)
+	p.SetSender(sender)
+	p.PollOnce() // establishes baseline
+
+	stub.outputs["tmux-conductor"] = replyOutput
+	p.PollOnce() // sends reply
+	p.PollOnce() // reply still visible — must NOT resend
+
+	var replyCalls int
+	for _, c := range sender.calls {
+		if c.session == "tmux-worker" {
+			replyCalls++
+		}
+	}
+	if replyCalls != 1 {
+		t.Errorf("expected 1 reply delivery, got %d", replyCalls)
+	}
+}
+
+func TestReplyRoutingSkipsUnknownWorker(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	now := time.Now().Unix()
+	db.CreateGroup(conn, db.Group{Path: "work", Name: "work", ConductorSessionID: "conductor"})
+	db.CreateSession(conn, db.Session{
+		ID: "conductor", Title: "conductor", GroupPath: "work", TmuxSession: "tmux-conductor",
+		ProjectPath: "/p", Tool: "claude", Status: "running", CreatedAt: now,
+	})
+
+	baseOutput := "baseline"
+	stub := &stubTmux{
+		outputs: map[string]string{"tmux-conductor": baseOutput},
+		exists:  true,
+	}
+	sender := &stubSender{}
+	p := state.New(conn, stub)
+	p.SetSender(sender)
+	p.PollOnce()
+
+	stub.outputs["tmux-conductor"] = baseOutput + "\n@deck-reply worker=nonexistent\nfoo\n@deck-end"
+	p.PollOnce()
+
+	if len(sender.calls) != 0 {
+		t.Fatalf("expected 0 calls for unknown worker, got %d", len(sender.calls))
+	}
+}
+
+func TestReplyRoutingSkipsStoppedWorker(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	now := time.Now().Unix()
+	db.CreateGroup(conn, db.Group{Path: "work", Name: "work", ConductorSessionID: "conductor"})
+	db.CreateSession(conn, db.Session{
+		ID: "conductor", Title: "conductor", GroupPath: "work", TmuxSession: "tmux-conductor",
+		ProjectPath: "/p", Tool: "claude", Status: "running", CreatedAt: now,
+	})
+	db.CreateSession(conn, db.Session{
+		ID: "worker-1", Title: "worker", GroupPath: "work", TmuxSession: "tmux-worker",
+		ProjectPath: "/p", Tool: "claude", Status: "stopped", CreatedAt: now,
+	})
+
+	baseOutput := "baseline"
+	stub := &stubTmux{
+		outputs: map[string]string{"tmux-conductor": baseOutput},
+		exists:  true,
+	}
+	sender := &stubSender{}
+	p := state.New(conn, stub)
+	p.SetSender(sender)
+	p.PollOnce()
+
+	stub.outputs["tmux-conductor"] = baseOutput + "\n@deck-reply worker=worker-1\nfoo\n@deck-end"
+	p.PollOnce()
+
+	var replyCalls int
+	for _, c := range sender.calls {
+		if c.session == "tmux-worker" {
+			replyCalls++
+		}
+	}
+	if replyCalls != 0 {
+		t.Errorf("expected 0 reply calls for stopped worker, got %d", replyCalls)
+	}
+}
