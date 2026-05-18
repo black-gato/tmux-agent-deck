@@ -111,6 +111,66 @@ func TestNewSessionDialogCreatesSession(t *testing.T) {
 	}
 }
 
+func TestNewSessionFromSelectedSessionUsesItsGroup(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	if err := db.CreateGroup(conn, db.Group{Path: "work", Name: "work", Expanded: true}); err != nil {
+		t.Fatalf("create group: %v", err)
+	}
+	if err := db.CreateSession(conn, db.Session{
+		ID:          "existing",
+		Title:       "existing",
+		GroupPath:   "work",
+		ProjectPath: "/p",
+		Tool:        "claude",
+		Status:      "stopped",
+		CreatedAt:   time.Now().Unix(),
+	}); err != nil {
+		t.Fatalf("create existing session: %v", err)
+	}
+	m := ui.NewModel(conn, nil, nil)
+	m.Reload()
+
+	for i, item := range m.Items() {
+		if item.Kind == "session" && item.Session.ID == "existing" {
+			for m.Cursor() < i {
+				m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+			}
+			break
+		}
+	}
+	if m.Items()[m.Cursor()].Kind != "session" || m.Items()[m.Cursor()].Session.ID != "existing" {
+		t.Fatalf("expected cursor on existing session, got item %#v", m.Items()[m.Cursor()])
+	}
+
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+	for _, r := range "new-worker" {
+		m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter}) // step 0 → 1
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter}) // step 1 → 2
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter}) // step 2 → 3 (flags)
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter}) // step 3 → 4 (startup script)
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter}) // step 4 → commit
+
+	sessions, err := db.ListSessions(conn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var created *db.Session
+	for i := range sessions {
+		if sessions[i].Title == "new-worker" {
+			created = &sessions[i]
+			break
+		}
+	}
+	if created == nil {
+		t.Fatal("new-worker session not created")
+	}
+	if created.GroupPath != "work" {
+		t.Fatalf("GroupPath: got %q want work", created.GroupPath)
+	}
+}
+
 func TestNewSessionPathTabCompletesSingleMatch(t *testing.T) {
 	conn := testutil.OpenTestDB(t)
 	tmp := t.TempDir()

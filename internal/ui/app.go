@@ -59,6 +59,21 @@ func NewModel(conn *sql.DB, tc tmux.ClientIface, poller *state.Poller) *Model {
 	}
 }
 
+func (m *Model) currentGroupPath() string {
+	if m.cursor >= len(m.items) {
+		return defaultGroupPath
+	}
+	item := m.items[m.cursor]
+	switch item.Kind {
+	case "group":
+		return item.Group.Path
+	case "session":
+		return item.Session.GroupPath
+	default:
+		return defaultGroupPath
+	}
+}
+
 func (m *Model) Reload() error {
 	now := time.Now()
 	if m.poller != nil {
@@ -228,15 +243,7 @@ func (m *Model) updateNavigation(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			defaultPath = wd
 		}
 		defaultTool := "claude"
-		var cursorGroupPath string
-		if m.cursor < len(m.items) {
-			item := m.items[m.cursor]
-			if item.Kind == "group" {
-				cursorGroupPath = item.Group.Path
-			} else if item.Kind == "session" {
-				cursorGroupPath = item.Session.GroupPath
-			}
-		}
+		cursorGroupPath := m.currentGroupPath()
 		for _, g := range m.groups {
 			if g.Path == cursorGroupPath {
 				if g.DefaultPath != "" {

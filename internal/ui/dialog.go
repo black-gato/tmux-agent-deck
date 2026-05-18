@@ -294,10 +294,7 @@ func (m *Model) commitDialog() {
 		if m.dialog.savedTitle == "" {
 			return
 		}
-		groupPath := defaultGroupPath
-		if m.cursor < len(m.items) && m.items[m.cursor].Kind == "group" {
-			groupPath = m.items[m.cursor].Group.Path
-		}
+		groupPath := m.currentGroupPath()
 		path := strings.TrimSpace(m.dialog.savedPath)
 		if path == "" {
 			path = "."
