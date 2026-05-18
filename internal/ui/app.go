@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/black-gato/tmux-agent-deck/internal/conductordocs"
 	"github.com/black-gato/tmux-agent-deck/internal/db"
 	"github.com/black-gato/tmux-agent-deck/internal/state"
 	"github.com/black-gato/tmux-agent-deck/internal/tmux"
@@ -48,6 +49,7 @@ type Model struct {
 	searchQuery          string
 	contextPct           map[string]*int
 	navigateToGroup      string
+	InitConductorDocs    bool
 }
 
 func NewModel(conn *sql.DB, tc tmux.ClientIface, poller *state.Poller) *Model {
@@ -321,6 +323,12 @@ func (m *Model) updateNavigation(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			if err := m.Reload(); err != nil {
 				m.err = err
+				break
+			}
+			if m.InitConductorDocs && session.ProjectPath != "" {
+				if err := conductordocs.WriteBlock(session.ProjectPath); err != nil {
+					m.err = fmt.Errorf("init conductor docs: %w", err)
+				}
 			}
 		}
 	case "escalate-conductor":

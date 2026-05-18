@@ -28,6 +28,7 @@ var pollInterval time.Duration
 var headlessMode bool
 var autoEscalate bool
 var conductorHeartbeat time.Duration
+var initConductorDocs bool
 var rootTmuxClient tmux.ClientIface
 
 var rootCmd = &cobra.Command{
@@ -105,7 +106,9 @@ func resetRootOptions() {
 	headlessMode = false
 	autoEscalate = false
 	conductorHeartbeat = 0
+	initConductorDocs = false
 	_ = rootCmd.PersistentFlags().Set("conductor-heartbeat", "0s")
+	_ = rootCmd.PersistentFlags().Set("init-conductor-docs", "false")
 	_ = rootCmd.PersistentFlags().Set("notify", "false")
 	_ = rootCmd.PersistentFlags().Set("notify-style", "waiting")
 	_ = rootCmd.PersistentFlags().Set("notify-quiet", "")
@@ -145,6 +148,7 @@ func launchTUI(conn *sql.DB, tc tmux.ClientIface) error {
 		poller.Start()
 
 		m := ui.NewModel(conn, tc, poller)
+		m.InitConductorDocs = initConductorDocs
 		p := tea.NewProgram(m, tea.WithAltScreen())
 		finalModel, err := p.Run()
 		if err != nil {
@@ -201,4 +205,5 @@ func init() {
 	rootCmd.PersistentFlags().BoolVar(&headlessMode, "headless", false, "Run the poller without launching the TUI")
 	rootCmd.PersistentFlags().BoolVar(&autoEscalate, "auto-escalate", false, "Automatically send escalation message to group conductor when a worker session goes waiting")
 	rootCmd.PersistentFlags().DurationVar(&conductorHeartbeat, "conductor-heartbeat", 0, "Send a waiting-worker digest to each group conductor on this interval (0 disables)")
+	rootCmd.PersistentFlags().BoolVar(&initConductorDocs, "init-conductor-docs", false, "Write conductor role instructions into CLAUDE.md when setting a conductor with c")
 }
