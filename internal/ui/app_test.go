@@ -90,11 +90,7 @@ func TestNewSessionDialogCreatesSession(t *testing.T) {
 	for _, r := range "my-app" {
 		m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
 	}
-	m.Update(tea.KeyMsg{Type: tea.KeyEnter}) // step 0 → 1
-	m.Update(tea.KeyMsg{Type: tea.KeyEnter}) // step 1 → 2
-	m.Update(tea.KeyMsg{Type: tea.KeyEnter}) // step 2 → 3 (flags)
-	m.Update(tea.KeyMsg{Type: tea.KeyEnter}) // step 3 → 4 (startup script)
-	m.Update(tea.KeyMsg{Type: tea.KeyEnter}) // step 4 → commit
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter}) // commit form
 
 	sessions, err := db.ListSessions(conn)
 	if err != nil {
@@ -146,11 +142,7 @@ func TestNewSessionFromSelectedSessionUsesItsGroup(t *testing.T) {
 	for _, r := range "new-worker" {
 		m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
 	}
-	m.Update(tea.KeyMsg{Type: tea.KeyEnter}) // step 0 → 1
-	m.Update(tea.KeyMsg{Type: tea.KeyEnter}) // step 1 → 2
-	m.Update(tea.KeyMsg{Type: tea.KeyEnter}) // step 2 → 3 (flags)
-	m.Update(tea.KeyMsg{Type: tea.KeyEnter}) // step 3 → 4 (startup script)
-	m.Update(tea.KeyMsg{Type: tea.KeyEnter}) // step 4 → commit
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter}) // commit form
 
 	sessions, err := db.ListSessions(conn)
 	if err != nil {
@@ -192,15 +184,13 @@ func TestNewSessionPathTabCompletesSingleMatch(t *testing.T) {
 	for _, r := range "my-app" {
 		m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
 	}
-	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m.Update(tea.KeyMsg{Type: tea.KeyTab}) // advance to PATH field
+	// PATH is pre-filled with cwd (tmp); append "/Pro" at cursor end
 	for _, r := range "/Pro" {
 		m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
 	}
-	m.Update(tea.KeyMsg{Type: tea.KeyTab})
-	m.Update(tea.KeyMsg{Type: tea.KeyEnter}) // step 1 → 2
-	m.Update(tea.KeyMsg{Type: tea.KeyEnter}) // step 2 → 3 (flags)
-	m.Update(tea.KeyMsg{Type: tea.KeyEnter}) // step 3 → 4 (startup script)
-	m.Update(tea.KeyMsg{Type: tea.KeyEnter}) // step 4 → commit
+	m.Update(tea.KeyMsg{Type: tea.KeyTab}) // complete to ProjectAlpha/
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter}) // commit form
 
 	sessions, err := db.ListSessions(conn)
 	if err != nil {
@@ -243,12 +233,12 @@ func TestNewSessionPathTabShowsCandidatesOnSecondTab(t *testing.T) {
 	for _, r := range "my-app" {
 		m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
 	}
-	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m.Update(tea.KeyMsg{Type: tea.KeyTab}) // advance to PATH field
+	// PATH is pre-filled with cwd (tmp); append "/Pro"
 	for _, r := range "/Pro" {
 		m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
 	}
-	m.Update(tea.KeyMsg{Type: tea.KeyTab})
-	m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	m.Update(tea.KeyMsg{Type: tea.KeyTab}) // start cycling — shows candidates
 
 	view := m.View()
 	if !strings.Contains(view, "ProjectAlpha") || !strings.Contains(view, "ProjectBeta") {
@@ -261,42 +251,32 @@ func TestNewSessionFlowCreatesSessionWithTool(t *testing.T) {
 	m := ui.NewModel(conn, nil, nil)
 	m.Reload()
 
-	// Open new session dialog
+	// Open new session form
 	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
 	if m.Mode() != "new-session" {
 		t.Fatalf("expected new-session mode, got %q", m.Mode())
 	}
 
-	// Step 0: type title and press Enter — mode must stay "new-session"
+	// Type title
 	for _, r := range "fleet-agent" {
 		m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
 	}
-	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	if m.Mode() != "new-session" {
-		t.Fatalf("mode must stay new-session after step 0, got %q", m.Mode())
-	}
 
-	// Step 1: accept default path with Enter
-	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	if m.Mode() != "new-session" {
-		t.Fatalf("mode must stay new-session after step 1, got %q", m.Mode())
+	// Tab to PATH, replace with nonexistent path so completion finds nothing, Tab to TOOL
+	m.Update(tea.KeyMsg{Type: tea.KeyTab}) // TITLE → PATH
+	for i := 0; i < 512; i++ {
+		m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
 	}
+	for _, r := range "/nonexistent-path-xyz/" {
+		m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyTab}) // PATH (no candidates) → TOOL
 
-	// Step 2: cycle tool to "aider" (right arrow twice from "claude"), then Enter
+	// Cycle tool to "aider" (right arrow twice from "claude")
 	m.Update(tea.KeyMsg{Type: tea.KeyRight})
 	m.Update(tea.KeyMsg{Type: tea.KeyRight})
-	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	if m.Mode() != "new-session" {
-		t.Fatalf("mode must stay new-session after step 2, got %q", m.Mode())
-	}
 
-	// Step 3: empty tool flags, Enter to advance
-	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	if m.Mode() != "new-session" {
-		t.Fatalf("mode must stay new-session after step 3, got %q", m.Mode())
-	}
-
-	// Step 4: empty startup script, Enter to commit
+	// Commit form
 	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	if m.Mode() != "" {
 		t.Errorf("expected mode cleared after commit, got %q", m.Mode())
@@ -332,19 +312,11 @@ func TestNewSessionInheritsGroupDefaults(t *testing.T) {
 
 	// Open new-session while cursor is on my-sessions group (default position)
 	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
-	// Step 0: title
+	// Type title and commit — PATH and TOOL will use group defaults
 	for _, r := range "defaults-test" {
 		m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
 	}
-	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	// Step 1: accept pre-filled path (should be /opt/api from group default)
-	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	// Step 2: accept pre-selected tool (should be aider from group default)
-	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	// Step 3: no tool flags
-	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	// Step 4: no startup script
-	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter}) // commit form
 
 	sessions, err := db.ListSessions(conn)
 	if err != nil {
@@ -378,14 +350,20 @@ func TestNewSessionDialogPersistsToolFlags(t *testing.T) {
 	for _, r := range "flagged-agent" {
 		m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
 	}
-	m.Update(tea.KeyMsg{Type: tea.KeyEnter}) // step 0 → 1
-	m.Update(tea.KeyMsg{Type: tea.KeyEnter}) // step 1 → 2 (tool)
-	m.Update(tea.KeyMsg{Type: tea.KeyEnter}) // step 2 → 3 (flags)
+	// Tab to PATH, replace with nonexistent path, Tab to TOOL, Tab to FLAGS
+	m.Update(tea.KeyMsg{Type: tea.KeyTab}) // TITLE → PATH
+	for i := 0; i < 512; i++ {
+		m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	}
+	for _, r := range "/nonexistent-path-xyz/" {
+		m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyTab}) // PATH (no candidates) → TOOL
+	m.Update(tea.KeyMsg{Type: tea.KeyTab}) // TOOL → FLAGS
 	for _, r := range "--dangerously-skip-permissions" {
 		m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
 	}
-	m.Update(tea.KeyMsg{Type: tea.KeyEnter}) // step 3 → 4 (startup script)
-	m.Update(tea.KeyMsg{Type: tea.KeyEnter}) // step 4 → commit
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter}) // commit form
 
 	sessions, err := db.ListSessions(conn)
 	if err != nil {
@@ -2483,7 +2461,7 @@ func TestFullscreenExitsNewSessionDialog(t *testing.T) {
 	if m.ViewFull() {
 		t.Error("viewFull should be false once new-session dialog opens")
 	}
-	if !strings.Contains(m.View(), "Session title:") {
-		t.Errorf("expected 'Session title:' in view, got:\n%s", m.View())
+	if !strings.Contains(m.View(), "NEW SESSION") {
+		t.Errorf("expected 'NEW SESSION' in view, got:\n%s", m.View())
 	}
 }
