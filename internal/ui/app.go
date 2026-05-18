@@ -381,6 +381,19 @@ func (m *Model) View() string {
 	header := m.renderAppHeader()
 	footer := m.renderFooter()
 
+	if m.mode == "new-session" {
+		formStr := m.renderForm()
+		formLines := strings.Split(formStr, "\n")
+		formH := len(formLines)
+		listH := contentH - formH - 1
+		if listH < 1 {
+			listH = 1
+		}
+		listContent := RenderList(m.items, m.cursor, m.width, listH)
+		sep := strings.Repeat("─", m.width)
+		return header + "\n" + listContent + "\n" + sep + "\n" + formStr + "\n" + footer
+	}
+
 	if m.mode == "help" {
 		return header + "\n" + strings.Repeat("─", m.width) + "\n" + m.renderHelpOverlay(m.width, contentH) + "\n" + footer
 	}
@@ -393,9 +406,7 @@ func (m *Model) View() string {
 
 	leftContent := RenderList(m.items, m.cursor, leftW, contentH)
 	var rightContent string
-	if m.mode == "new-session" {
-		rightContent = m.renderForm()
-	} else if m.mode != "" && m.mode != "edit-notes" {
+	if m.mode != "" && m.mode != "edit-notes" {
 		rightContent = m.renderDialog()
 	} else {
 		rightContent = m.RenderDetailPanel(rightW, contentH)
