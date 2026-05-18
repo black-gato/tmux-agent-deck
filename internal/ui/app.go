@@ -2,6 +2,7 @@ package ui
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -868,6 +869,9 @@ func (m *Model) escalateSelectedSession() error {
 		return nil
 	}
 	conductor, err := db.GetGroupConductorSession(m.conn, session.GroupPath)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
 	if err != nil {
 		return fmt.Errorf("resolve conductor for %q: %w", session.GroupPath, err)
 	}
