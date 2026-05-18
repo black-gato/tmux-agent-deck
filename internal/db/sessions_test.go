@@ -414,3 +414,87 @@ func TestToolFlagsRoundTrip(t *testing.T) {
 		t.Errorf("tool_flags: got %q want %q", got.ToolFlags, s.ToolFlags)
 	}
 }
+
+func TestListGroupChildSessionsIncludesOwnGroup(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	dbpkg.CreateGroup(conn, dbpkg.Group{Path: "work", Name: "work", ConductorSessionID: "c1"})
+	now := time.Now().Unix()
+	dbpkg.CreateSession(conn, dbpkg.Session{
+		ID: "c1", Title: "conductor", GroupPath: "work",
+		TmuxSession: "t1", ProjectPath: "/p", Tool: "claude", Status: "running", CreatedAt: now,
+	})
+	dbpkg.CreateSession(conn, dbpkg.Session{
+		ID: "w1", Title: "worker", GroupPath: "work",
+		TmuxSession: "t2", ProjectPath: "/p", Tool: "claude", Status: "waiting", CreatedAt: now,
+	})
+
+	sessions, err := dbpkg.ListGroupChildSessions(conn, "work", "c1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := make(map[string]bool)
+	for _, s := range sessions {
+		ids[s.ID] = true
+	}
+	if !ids["c1"] || !ids["w1"] {
+		t.Errorf("expected both sessions, got IDs: %v", ids)
+	}
+}
+
+func TestListGroupChildSessionsIncludesInheritedChildren(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	dbpkg.CreateGroup(conn, dbpkg.Group{Path: "work", Name: "work", ConductorSessionID: "c1"})
+	dbpkg.CreateGroup(conn, dbpkg.Group{Path: "work/sub", Name: "sub"}) // no own conductor
+	now := time.Now().Unix()
+	dbpkg.CreateSession(conn, dbpkg.Session{
+		ID: "c1", Title: "conductor", GroupPath: "work",
+		TmuxSession: "t1", ProjectPath: "/p", Tool: "claude", Status: "running", CreatedAt: now,
+	})
+	dbpkg.CreateSession(conn, dbpkg.Session{
+		ID: "w2", Title: "sub-worker", GroupPath: "work/sub",
+		TmuxSession: "t3", ProjectPath: "/p", Tool: "claude", Status: "running", CreatedAt: now,
+	})
+
+	sessions, err := dbpkg.ListGroupChildSessions(conn, "work", "c1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := make(map[string]bool)
+	for _, s := range sessions {
+		ids[s.ID] = true
+	}
+	if !ids["w2"] {
+		t.Errorf("expected sub-group worker in results, got: %v", ids)
+	}
+}
+
+func TestListGroupChildSessionsExcludesOwnConductorSubgroups(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	dbpkg.CreateGroup(conn, dbpkg.Group{Path: "work", Name: "work", ConductorSessionID: "c1"})
+	dbpkg.CreateGroup(conn, dbpkg.Group{Path: "work/sub", Name: "sub", ConductorSessionID: "c2"}) // own conductor
+	now := time.Now().Unix()
+	dbpkg.CreateSession(conn, dbpkg.Session{
+		ID: "c1", Title: "conductor", GroupPath: "work",
+		TmuxSession: "t1", ProjectPath: "/p", Tool: "claude", Status: "running", CreatedAt: now,
+	})
+	dbpkg.CreateSession(conn, dbpkg.Session{
+		ID: "c2", Title: "sub-conductor", GroupPath: "work/sub",
+		TmuxSession: "t2", ProjectPath: "/p", Tool: "claude", Status: "running", CreatedAt: now,
+	})
+	dbpkg.CreateSession(conn, dbpkg.Session{
+		ID: "w3", Title: "sub-worker", GroupPath: "work/sub",
+		TmuxSession: "t3", ProjectPath: "/p", Tool: "claude", Status: "running", CreatedAt: now,
+	})
+
+	sessions, err := dbpkg.ListGroupChildSessions(conn, "work", "c1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := make(map[string]bool)
+	for _, s := range sessions {
+		ids[s.ID] = true
+	}
+	if ids["c2"] || ids["w3"] {
+		t.Errorf("expected sub-group with own conductor excluded, got: %v", ids)
+	}
+}

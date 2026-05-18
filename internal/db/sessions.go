@@ -294,6 +294,26 @@ func SetSessionArchived(conn *sql.DB, id string, archived bool) error {
 	return nil
 }
 
+func ListGroupChildSessions(conn *sql.DB, groupPath, conductorID string) ([]Session, error) {
+	escaped := strings.NewReplacer("%", `\%`, "_", `\_`).Replace(groupPath)
+	prefix := escaped + "/%"
+	rows, err := conn.Query(
+		`SELECT s.id, s.title, s.group_path, s.tmux_session, s.project_path, s.tool, s.status,
+		        s.created_at, s.last_active, s.notes, s.archived, s.tags, s.startup_script, s.tool_flags
+		 FROM sessions s
+		 LEFT JOIN groups g ON s.group_path = g.path
+		 WHERE (s.group_path = ? OR s.group_path LIKE ? ESCAPE '\')
+		   AND (g.conductor_session_id IS NULL OR g.conductor_session_id = '' OR g.conductor_session_id = ?)
+		   AND s.archived = 0`,
+		groupPath, prefix, conductorID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanSessions(rows)
+}
+
 func scanSessions(rows *sql.Rows) ([]Session, error) {
 	sessions := []Session{}
 	for rows.Next() {
