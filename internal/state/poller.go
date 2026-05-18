@@ -249,7 +249,7 @@ func (p *Poller) autoEscalate(session db.Session, output string) {
 		log.Printf("poller: auto-escalate %q: conductor %q unavailable", session.ID, conductor.Title)
 		return
 	}
-	if err := p.sender.SendKeys(conductor.TmuxSession, 0, escalationMessage(session, output)); err != nil {
+	if err := p.sender.SendKeys(conductor.TmuxSession, 0, EscalationMessage(session, output)); err != nil {
 		log.Printf("poller: auto-escalate send keys %q: %v", session.ID, err)
 		return
 	}

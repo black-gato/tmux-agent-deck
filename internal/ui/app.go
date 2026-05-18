@@ -883,19 +883,11 @@ func conductorUnavailable(conductor db.Session) bool {
 }
 
 func (m *Model) escalationMessage(session *db.Session) string {
-	lines := []string{
-		fmt.Sprintf("Escalation from %s", session.Title),
-		fmt.Sprintf("Status: %s", session.Status),
+	out := ""
+	if m.output != "" {
+		out = m.output
 	}
-	if session.Notes != "" {
-		lines = append(lines, fmt.Sprintf("Notes: %s", session.Notes))
-	}
-	context := strings.Join(contextLines(m.output, 5), "\n")
-	if strings.TrimSpace(context) != "" {
-		lines = append(lines, "Current issue context:")
-		lines = append(lines, context)
-	}
-	return strings.Join(lines, "\n")
+	return state.EscalationMessage(*session, out)
 }
 
 func (m *Model) toggleArchivedSelection() error {
