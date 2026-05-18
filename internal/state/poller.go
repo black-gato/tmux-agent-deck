@@ -2,6 +2,7 @@ package state
 
 import (
 	"database/sql"
+	"fmt"
 	"log"
 	"strings"
 	"sync"
@@ -34,6 +35,8 @@ type Poller struct {
 	contextPct        map[string]*int
 	conductorBaseline map[string]string
 	processedReplies  map[string]bool
+	heartbeatInterval time.Duration
+	lastHeartbeat     map[string]time.Time
 	done              chan struct{}
 }
 
@@ -80,12 +83,17 @@ func NewWithClockInterval(conn *sql.DB, tc TmuxReader, notifier waitingNotifier,
 		contextPct:        make(map[string]*int),
 		conductorBaseline: make(map[string]string),
 		processedReplies:  make(map[string]bool),
+		lastHeartbeat:     make(map[string]time.Time),
 		done:              make(chan struct{}),
 	}
 }
 
 func (p *Poller) SetSender(s TmuxSender) {
 	p.sender = s
+}
+
+func (p *Poller) SetConductorHeartbeat(interval time.Duration) {
+	p.heartbeatInterval = interval
 }
 
 func (p *Poller) Start() {
@@ -181,6 +189,7 @@ func (p *Poller) PollOnce() {
 		p.notifyDigest(groupPath)
 	}
 	p.scanConductorReplies(sessions)
+	p.runHeartbeats(sessions)
 }
 
 func (p *Poller) notifyWaiting(session db.Session) {
@@ -325,6 +334,90 @@ func (p *Poller) scanConductorReplies(sessions []db.Session) {
 			}
 		}
 	}
+}
+
+func (p *Poller) runHeartbeats(sessions []db.Session) {
+	if p.heartbeatInterval <= 0 || p.sender == nil {
+		return
+	}
+	now := p.now()
+	groups, err := db.ListGroups(p.conn)
+	if err != nil {
+		log.Printf("poller: heartbeat list groups: %v", err)
+		return
+	}
+	sessionMap := make(map[string]db.Session, len(sessions))
+	for _, s := range sessions {
+		sessionMap[s.ID] = s
+	}
+	for _, g := range groups {
+		if g.ConductorSessionID == "" {
+			continue
+		}
+		conductor, ok := sessionMap[g.ConductorSessionID]
+		if !ok || conductor.TmuxSession == "" {
+			continue
+		}
+		p.mu.RLock()
+		last := p.lastHeartbeat[g.Path]
+		p.mu.RUnlock()
+		if last.IsZero() {
+			p.mu.Lock()
+			p.lastHeartbeat[g.Path] = now
+			p.mu.Unlock()
+			continue
+		}
+		if now.Sub(last) < p.heartbeatInterval {
+			continue
+		}
+		groupSessions, err := db.ListGroupChildSessions(p.conn, g.Path, g.ConductorSessionID)
+		if err != nil {
+			log.Printf("poller: heartbeat list sessions %q: %v", g.Path, err)
+			continue
+		}
+		workers := make([]db.Session, 0, len(groupSessions))
+		for _, s := range groupSessions {
+			if s.ID != g.ConductorSessionID {
+				workers = append(workers, s)
+			}
+		}
+		msg := p.heartbeatMessage(g.Path, workers)
+		if err := p.sender.SendKeys(conductor.TmuxSession, 0, msg); err != nil {
+			log.Printf("poller: heartbeat send %q: %v", g.Path, err)
+			continue
+		}
+		_ = p.sender.SendRawKeys(conductor.TmuxSession, 0, "Enter")
+		p.mu.Lock()
+		p.lastHeartbeat[g.Path] = now
+		p.mu.Unlock()
+	}
+}
+
+func (p *Poller) heartbeatMessage(groupPath string, sessions []db.Session) string {
+	var waiting []db.Session
+	for _, s := range sessions {
+		if s.Status == tmux.StatusWaiting {
+			waiting = append(waiting, s)
+		}
+	}
+	if len(waiting) == 0 {
+		return fmt.Sprintf("Heartbeat for %s | All clear | %d sessions active", groupPath, len(sessions))
+	}
+	parts := []string{fmt.Sprintf("Heartbeat for %s | %d waiting", groupPath, len(waiting))}
+	p.mu.RLock()
+	now := p.now()
+	for _, s := range waiting {
+		part := fmt.Sprintf("Worker ID: %s | Title: %s", s.ID, s.Title)
+		if since, ok := p.waitingSince[s.ID]; ok {
+			part += fmt.Sprintf(" | Waiting: %s", now.Sub(since).Round(time.Second))
+		}
+		if s.Notes != "" {
+			part += fmt.Sprintf(" | Notes: %s", s.Notes)
+		}
+		parts = append(parts, part)
+	}
+	p.mu.RUnlock()
+	return strings.Join(parts, " | ")
 }
 
 func conductorUnavailable(conductor db.Session) bool {

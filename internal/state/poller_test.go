@@ -870,6 +870,107 @@ func TestReplyRoutingSkipsUnknownWorker(t *testing.T) {
 	}
 }
 
+func TestHeartbeatSendsDigestAfterInterval(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	start := time.Now()
+	now := start.Unix()
+	db.CreateGroup(conn, db.Group{Path: "work", Name: "work", ConductorSessionID: "conductor"})
+	db.CreateSession(conn, db.Session{
+		ID: "conductor", Title: "conductor", GroupPath: "work", TmuxSession: "tmux-conductor",
+		ProjectPath: "/p", Tool: "claude", Status: "running", CreatedAt: now,
+	})
+	db.CreateSession(conn, db.Session{
+		ID: "worker-1", Title: "worker", GroupPath: "work", TmuxSession: "tmux-worker",
+		ProjectPath: "/p", Tool: "claude", Status: "waiting", CreatedAt: now,
+	})
+
+	tick := start
+	stub := &stubTmux{output: "> ", exists: true}
+	sender := &stubSender{}
+	p := state.NewWithClock(conn, stub, nil, func() time.Time { return tick })
+	p.SetSender(sender)
+	p.SetConductorHeartbeat(5 * time.Minute)
+
+	p.PollOnce() // t=0, no heartbeat yet (first call)
+
+	tick = start.Add(6 * time.Minute)
+	p.PollOnce() // t=6m, heartbeat should fire
+
+	var heartbeatCalls int
+	for _, c := range sender.calls {
+		if c.session == "tmux-conductor" && strings.Contains(c.keys, "Heartbeat") {
+			heartbeatCalls++
+		}
+	}
+	if heartbeatCalls == 0 {
+		t.Fatal("expected at least one heartbeat call to conductor")
+	}
+}
+
+func TestHeartbeatNotFiredBeforeInterval(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	start := time.Now()
+	now := start.Unix()
+	db.CreateGroup(conn, db.Group{Path: "work", Name: "work", ConductorSessionID: "conductor"})
+	db.CreateSession(conn, db.Session{
+		ID: "conductor", Title: "conductor", GroupPath: "work", TmuxSession: "tmux-conductor",
+		ProjectPath: "/p", Tool: "claude", Status: "running", CreatedAt: now,
+	})
+
+	tick := start
+	stub := &stubTmux{output: "> ", exists: true}
+	sender := &stubSender{}
+	p := state.NewWithClock(conn, stub, nil, func() time.Time { return tick })
+	p.SetSender(sender)
+	p.SetConductorHeartbeat(10 * time.Minute)
+
+	p.PollOnce()
+	tick = start.Add(3 * time.Minute)
+	p.PollOnce()
+
+	for _, c := range sender.calls {
+		if strings.Contains(c.keys, "Heartbeat") {
+			t.Errorf("unexpected heartbeat call before interval: %+v", c)
+		}
+	}
+}
+
+func TestHeartbeatAllClearWhenNoWaiting(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	start := time.Now()
+	now := start.Unix()
+	db.CreateGroup(conn, db.Group{Path: "work", Name: "work", ConductorSessionID: "conductor"})
+	db.CreateSession(conn, db.Session{
+		ID: "conductor", Title: "conductor", GroupPath: "work", TmuxSession: "tmux-conductor",
+		ProjectPath: "/p", Tool: "claude", Status: "running", CreatedAt: now,
+	})
+	db.CreateSession(conn, db.Session{
+		ID: "worker-1", Title: "worker", GroupPath: "work", TmuxSession: "tmux-worker",
+		ProjectPath: "/p", Tool: "claude", Status: "running", CreatedAt: now,
+	})
+
+	tick := start
+	stub := &stubTmux{output: "running output", exists: true}
+	sender := &stubSender{}
+	p := state.NewWithClock(conn, stub, nil, func() time.Time { return tick })
+	p.SetSender(sender)
+	p.SetConductorHeartbeat(5 * time.Minute)
+
+	p.PollOnce()
+	tick = start.Add(6 * time.Minute)
+	p.PollOnce()
+
+	var allClear bool
+	for _, c := range sender.calls {
+		if c.session == "tmux-conductor" && strings.Contains(c.keys, "All clear") {
+			allClear = true
+		}
+	}
+	if !allClear {
+		t.Error("expected All clear heartbeat when no workers waiting")
+	}
+}
+
 func TestReplyRoutingSkipsStoppedWorker(t *testing.T) {
 	conn := testutil.OpenTestDB(t)
 	now := time.Now().Unix()
