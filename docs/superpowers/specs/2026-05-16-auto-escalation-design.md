@@ -153,7 +153,7 @@ Context window expanded from 3 to 5 lines to compensate for filtered noise.
 Fixed by scanning the most recent 8 non-empty lines via `recentNonEmptyLines`:
 
 ```go
-case "claude":
+case isClaudeTool(tool):
     for _, line := range recentNonEmptyLines(trimmed, 8) {
         if isAgentPromptLine(line) {
             return StatusWaiting
@@ -164,3 +164,19 @@ case "claude":
 `isAgentPromptLine` matches `">"` and `"❯"` exactly (trimmed), so partial matches are not false positives.
 
 Also added `lastNonEmptyLine` helper used by other tool cases to avoid being fooled by trailing whitespace/newlines in pane output.
+
+---
+
+## Iteration 3 — 2026-05-18 Status Detection Hardening
+
+Claude prompt detection was hardened after a real `claude-dangerous` session showed a visible `❯` prompt but still transitioned to `idle`.
+
+Two additional cases are now covered:
+
+- ANSI-wrapped prompts from `tmux capture-pane`, such as `\x1b[32m❯\x1b[0m`, are normalized by stripping ANSI CSI escape sequences before status matching.
+- Claude-family tool names (`claude` and `claude-*`) use the Claude footer-aware detector. This includes the `claude-dangerous` preset, which previously fell through to shell-style detection and missed prompts above Claude's footer.
+
+Regression tests:
+
+- `TestDetectStatusClaudePromptWithANSI`
+- `TestDetectStatusClaudePresetPromptAboveStatusFooter`

@@ -2,7 +2,55 @@
 
 Tracked bugs in tmux-agent-deck. Newest first. Status: `open`, `in-progress`, `fixed`.
 
-Current repo status as of 2026-05-17: BUG-013 is open. BUG-001 through BUG-012 are fixed.
+Current repo status as of 2026-05-18: BUG-013 is open. BUG-014 and BUG-001 through BUG-012 are fixed.
+
+---
+
+## BUG-014: Claude-family prompt screens can be misclassified as `idle`
+
+**Reported:** 2026-05-18
+**Status:** fixed
+**Severity:** medium (waiting agents are missed, so notifications and auto-escalation do not fire)
+
+### Symptom
+
+A Claude session can visibly show the `❯` prompt above the Claude footer but transition from `running` to `idle` instead of `waiting` after the pane has been quiet for 30 seconds.
+
+Observed example:
+
+```text
+✻ Brewed for 25s
+────────────────────────
+❯
+────────────────────────
+  anthonymirville@host tmux-agent-deck (main) [Sonnet 4.6] ctx:14%
+  -- INSERT -- ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents
+```
+
+### Root cause
+
+Two prompt-detection gaps caused the visible prompt to be missed:
+
+1. `tmux capture-pane` can preserve ANSI color sequences around the prompt, e.g. `\x1b[32m❯\x1b[0m`. `isAgentPromptLine` compared the raw line to `"❯"`, so colored prompts did not match.
+2. The `claude-dangerous` preset stores `Tool` as `"claude-dangerous"`. `DetectStatus` only used Claude-specific footer-aware prompt detection when `tool == "claude"`, so the preset fell through to shell-style detection, which only checks the final line.
+
+Once both checks missed the prompt, the stale-output idle fallback returned `idle`.
+
+### Resolution
+
+`internal/tmux/status.go` now strips ANSI CSI escape sequences before status heuristics run and treats Claude-family tools (`claude` and `claude-*`) as Claude for prompt detection. That means `claude-dangerous` scans the most recent 8 non-empty lines for a bare `>` or `❯`, matching normal Claude behavior.
+
+### Files touched
+
+- `internal/tmux/status.go`
+- `internal/tmux/status_test.go`
+
+### Tests
+
+- `internal/tmux/status_test.go` — `TestDetectStatusClaudePromptWithANSI`
+- `internal/tmux/status_test.go` — `TestDetectStatusClaudePresetPromptAboveStatusFooter`
+- `go test ./internal/tmux -run TestDetectStatus -v`
+- `go test ./...`
 
 ---
 

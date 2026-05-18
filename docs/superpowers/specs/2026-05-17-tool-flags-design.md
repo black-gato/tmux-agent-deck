@@ -102,7 +102,12 @@ tool: claude  flags: --dangerously-skip-permissions
 - `ToolFlags` is stored in the DB and round-trips correctly through all SQL queries
 - The 5-step dialog captures and persists tool flags
 - The `claude-dangerous` tool option (selectable in step 2) resolves to `claude --dangerously-skip-permissions` via `resolveLaunchCommand` — this path works reliably
+- `claude-dangerous` is treated as a Claude-family tool by status detection, so Claude footer prompts above the status bar transition to `waiting` instead of falling through to shell-style `idle`
 - Tool and flags are visible in the detail panel
+
+### Status detection note
+
+`claude-dangerous` stores the session `Tool` as `"claude-dangerous"`, but the running process is still Claude. `DetectStatus` must therefore use Claude's footer-aware prompt detection for `claude-*` tools, not the shell/default detector. The detector also strips ANSI CSI escape sequences from `tmux capture-pane` output before matching prompt lines so colored `❯` prompts still count as `waiting`.
 
 ### What is broken — BUG-013
 
@@ -130,6 +135,8 @@ Select `claude-dangerous` as the tool (step 2) instead of `claude`. This maps di
 - `internal/db/db_test.go` — `TestOpenCreatesSchemaVersion` expects `"6"`
 - `internal/tmux/client_test.go` — `TestBuildLaunchCommand`: 6 cases covering empty flags, with flags, multiple flags, shell tool with flags, empty tool, trimmed flags
 - `internal/tmux/client_test.go` — `TestResolveLaunchCommand`: includes `claude-dangerous → "claude --dangerously-skip-permissions"`
+- `internal/tmux/status_test.go` — `TestDetectStatusClaudePresetPromptAboveStatusFooter`: `claude-dangerous` uses Claude prompt detection above the footer
+- `internal/tmux/status_test.go` — `TestDetectStatusClaudePromptWithANSI`: ANSI-wrapped `❯` prompts are detected as `waiting`
 - `internal/ui/app_test.go` — `TestNewSessionDialogPersistsToolFlags`: dialog flow with flags, verifies DB persistence
 - `internal/ui/app_test.go` — `TestToolFlagsPassedToNewSession`: flags in DB → NewSession receives correct tool+toolFlags
 
@@ -143,6 +150,8 @@ Select `claude-dangerous` as the tool (step 2) instead of `claude`. This maps di
 | `internal/db/sessions.go` | `ToolFlags` field, all INSERT/SELECT/Scan sites |
 | `internal/tmux/client.go` | `NewSession` 4-arg signature, `buildLaunchCommand`, `claude-dangerous` in `resolveLaunchCommand` |
 | `internal/tmux/client_test.go` | `TestBuildLaunchCommand`, `TestResolveLaunchCommand` |
+| `internal/tmux/status.go` | Claude-family status detection for `claude-*`, ANSI stripping before prompt matching |
+| `internal/tmux/status_test.go` | Regression tests for `claude-dangerous` footer prompts and ANSI-wrapped prompts |
 | `internal/testutil/tmux.go` | `FakeTmuxClient.NewSession` 4-arg signature, `NewSessionCall` struct |
 | `internal/ui/dialog.go` | `savedToolFlags`, step 3 in `advanceNewSessionStep`, step guard, `commitDialog` |
 | `internal/ui/app.go` | `ensureStarted`, detail panel tool/flags line |

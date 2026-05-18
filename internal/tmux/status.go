@@ -1,6 +1,7 @@
 package tmux
 
 import (
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -17,6 +18,11 @@ const (
 )
 
 var spinnerChars = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+var ansiEscapeRE = regexp.MustCompile(`\x1b\[[0-?]*[ -/]*[@-~]`)
+
+func stripANSI(s string) string {
+	return ansiEscapeRE.ReplaceAllString(s, "")
+}
 
 func ParseContextPct(output string) *int {
 	for _, line := range strings.Split(output, "\n") {
@@ -84,24 +90,29 @@ func isAgentPromptLine(line string) bool {
 	return line == ">" || line == "❯"
 }
 
+func isClaudeTool(tool string) bool {
+	return tool == "claude" || strings.HasPrefix(tool, "claude-")
+}
+
 func DetectStatus(output string, lastChange, now time.Time, tool string) Status {
+	output = stripANSI(output)
 	trimmed := strings.TrimRight(output, " \t\r\n")
 	lastNonEmpty := lastNonEmptyLine(trimmed)
 
-	switch tool {
-	case "aider":
-		if strings.HasSuffix(lastNonEmpty, "aider>") {
-			return StatusWaiting
-		}
-	case "copilot":
-		if lastNonEmpty == "❯" || lastNonEmpty == ">" {
-			return StatusWaiting
-		}
-	case "claude":
+	switch {
+	case isClaudeTool(tool):
 		for _, line := range recentNonEmptyLines(trimmed, 8) {
 			if isAgentPromptLine(line) {
 				return StatusWaiting
 			}
+		}
+	case tool == "aider":
+		if strings.HasSuffix(lastNonEmpty, "aider>") {
+			return StatusWaiting
+		}
+	case tool == "copilot":
+		if lastNonEmpty == "❯" || lastNonEmpty == ">" {
+			return StatusWaiting
 		}
 	default: // "", "bash", and any other shell-like tool
 		ll := lastLine(trimmed)

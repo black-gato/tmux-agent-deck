@@ -71,6 +71,41 @@ func TestDetectStatusClaudePromptAboveStatusFooter(t *testing.T) {
 	}
 }
 
+func TestDetectStatusClaudePromptWithANSI(t *testing.T) {
+	now := time.Now()
+	lastChange := now.Add(-2 * time.Minute)
+	output := strings.Join([]string{
+		"※ recap: Ready to resume work.",
+		"\x1b[32m❯\x1b[0m",
+		"────────────────────────",
+		"  anthonymirville@host project [Sonnet 4.6] ctx:12%",
+	}, "\n")
+
+	status := tmux.DetectStatus(output, lastChange, now, "claude")
+	if status != tmux.StatusWaiting {
+		t.Errorf("got %q want %q", status, tmux.StatusWaiting)
+	}
+}
+
+func TestDetectStatusClaudePresetPromptAboveStatusFooter(t *testing.T) {
+	now := time.Now()
+	lastChange := now.Add(-2 * time.Minute)
+	output := strings.Join([]string{
+		"⏺ Hey! What are you working on?",
+		"✻ Brewed for 25s",
+		"────────────────────────",
+		"❯",
+		"────────────────────────",
+		"  anthonymirville@host tmux-agent-deck (main) [Sonnet 4.6] ctx:14%",
+		"  -- INSERT -- ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents",
+	}, "\n")
+
+	status := tmux.DetectStatus(output, lastChange, now, "claude-dangerous")
+	if status != tmux.StatusWaiting {
+		t.Errorf("got %q want %q", status, tmux.StatusWaiting)
+	}
+}
+
 func TestDetectStatusBashDoesNotMatchOldPromptWhileCommandRuns(t *testing.T) {
 	now := time.Now()
 	lastChange := now.Add(-31 * time.Second)
