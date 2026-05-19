@@ -83,6 +83,43 @@ func TestParseReplyBlocksSingleLineIndented(t *testing.T) {
 	}
 }
 
+func TestParseReplyBlocksPromptPrefixedSingleLine(t *testing.T) {
+	input := "❯ @deck-reply worker=abc-123 hello world @deck-end"
+	blocks := state.ParseReplyBlocks(input)
+	if len(blocks) != 1 {
+		t.Fatalf("expected 1 block, got %d", len(blocks))
+	}
+	if blocks[0].WorkerID != "abc-123" {
+		t.Errorf("workerID: got %q want %q", blocks[0].WorkerID, "abc-123")
+	}
+	if blocks[0].Body != "hello world" {
+		t.Errorf("body: got %q want %q", blocks[0].Body, "hello world")
+	}
+}
+
+func TestParseReplyBlocksPromptPrefixedMultiline(t *testing.T) {
+	input := "❯ @deck-reply worker=abc-123\n  hello world\n  @deck-end"
+	blocks := state.ParseReplyBlocks(input)
+	if len(blocks) != 1 {
+		t.Fatalf("expected 1 block, got %d", len(blocks))
+	}
+	if blocks[0].Body != "hello world" {
+		t.Errorf("body: got %q want %q", blocks[0].Body, "hello world")
+	}
+}
+
+func TestParseReplyBlocksMixedForm(t *testing.T) {
+	// Body on @deck-reply line, @deck-end on next line
+	input := "❯ @deck-reply worker=abc-123 hello world\n  @deck-end"
+	blocks := state.ParseReplyBlocks(input)
+	if len(blocks) != 1 {
+		t.Fatalf("expected 1 block, got %d", len(blocks))
+	}
+	if blocks[0].Body != "hello world" {
+		t.Errorf("body: got %q want %q", blocks[0].Body, "hello world")
+	}
+}
+
 func TestParseReplyBlocksSingleLineEmptyBodyIgnored(t *testing.T) {
 	input := "@deck-reply worker=abc-123 @deck-end"
 	blocks := state.ParseReplyBlocks(input)

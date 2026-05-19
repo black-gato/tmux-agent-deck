@@ -7,17 +7,22 @@ type ReplyBlock struct {
 	Body     string
 }
 
+const replyPrefix = "@deck-reply worker="
+const endMarker = "@deck-end"
+
 func ParseReplyBlocks(output string) []ReplyBlock {
 	var results []ReplyBlock
 	lines := strings.Split(output, "\n")
 	i := 0
 	for i < len(lines) {
 		line := strings.TrimSpace(lines[i])
-		if !strings.HasPrefix(line, "@deck-reply worker=") {
+		// Search anywhere in the line — handles shell/TUI prompt prefixes like ❯
+		idx := strings.Index(line, replyPrefix)
+		if idx < 0 {
 			i++
 			continue
 		}
-		rest := strings.TrimSpace(strings.TrimPrefix(line, "@deck-reply worker="))
+		rest := strings.TrimSpace(line[idx+len(replyPrefix):])
 		if rest == "" {
 			i++
 			continue
@@ -25,7 +30,7 @@ func ParseReplyBlocks(output string) []ReplyBlock {
 		i++
 
 		// Single-line form: @deck-reply worker=<id> <body> @deck-end
-		if endIdx := strings.Index(rest, "@deck-end"); endIdx >= 0 {
+		if endIdx := strings.Index(rest, endMarker); endIdx >= 0 {
 			content := strings.TrimSpace(rest[:endIdx])
 			workerID, body := splitWorkerBody(content)
 			if workerID != "" && body != "" {
@@ -35,12 +40,15 @@ func ParseReplyBlocks(output string) []ReplyBlock {
 		}
 
 		// Multi-line form: id alone on the @deck-reply line, body lines follow
-		workerID := rest
+		workerID, inlineBody := splitWorkerBody(rest)
 		var bodyLines []string
+		if inlineBody != "" {
+			bodyLines = append(bodyLines, inlineBody)
+		}
 		closed := false
 		for i < len(lines) {
 			bl := strings.TrimSpace(lines[i])
-			if bl == "@deck-end" {
+			if strings.Contains(bl, endMarker) {
 				closed = true
 				i++
 				break
