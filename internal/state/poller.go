@@ -298,12 +298,18 @@ func (p *Poller) scanConductorReplies(sessions []db.Session) {
 		p.mu.Lock()
 		baseline, seen := p.conductorBaseline[s.ID]
 		if !seen {
+			// Seed fingerprints from historical content so old blocks are
+			// silently ignored rather than re-sent on startup.
+			for _, b := range ParseReplyBlocks(out) {
+				p.processedReplies[b.WorkerID+":"+b.Body] = true
+			}
 			p.conductorBaseline[s.ID] = out
 			p.mu.Unlock()
 			continue
 		}
 		newOut := NewOutputSince(baseline, out)
-		p.conductorBaseline[s.ID] = out
+		// Keep baseline fixed — newOut grows monotonically so a @deck-reply
+		// block that spans multiple poll cycles always appears complete.
 		p.mu.Unlock()
 
 		for _, block := range ParseReplyBlocks(newOut) {
