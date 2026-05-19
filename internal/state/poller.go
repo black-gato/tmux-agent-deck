@@ -33,8 +33,8 @@ type Poller struct {
 	lastOutput        map[string]string
 	waitingSince      map[string]time.Time
 	contextPct        map[string]*int
-	conductorBaseline map[string]string
-	processedReplies  map[string]bool
+	conductorSeen    map[string]bool
+	processedReplies map[string]bool
 	heartbeatInterval time.Duration
 	lastHeartbeat     map[string]time.Time
 	done              chan struct{}
@@ -81,8 +81,8 @@ func NewWithClockInterval(conn *sql.DB, tc TmuxReader, notifier waitingNotifier,
 		lastOutput:        make(map[string]string),
 		waitingSince:      make(map[string]time.Time),
 		contextPct:        make(map[string]*int),
-		conductorBaseline: make(map[string]string),
-		processedReplies:  make(map[string]bool),
+		conductorSeen:    make(map[string]bool),
+		processedReplies: make(map[string]bool),
 		lastHeartbeat:     make(map[string]time.Time),
 		done:              make(chan struct{}),
 	}
@@ -273,6 +273,7 @@ func (p *Poller) autoEscalate(session db.Session, output string) {
 }
 
 func (p *Poller) scanConductorReplies(sessions []db.Session) {
+	log.Printf("poller: scanConductorReplies called, sender=%v sessions=%d", p.sender != nil, len(sessions))
 	if p.sender == nil {
 		return
 	}
@@ -287,35 +288,36 @@ func (p *Poller) scanConductorReplies(sessions []db.Session) {
 			conductorIDs[g.ConductorSessionID] = true
 		}
 	}
+	log.Printf("poller: scan replies: %d groups, %d conductor IDs: %v", len(groups), len(conductorIDs), conductorIDs)
 	for _, s := range sessions {
 		if !conductorIDs[s.ID] || s.TmuxSession == "" {
 			continue
 		}
 		out, err := p.tmux.CapturePaneOutput(s.TmuxSession)
 		if err != nil {
+			log.Printf("poller: scan replies capture %q: %v", s.TmuxSession, err)
 			continue
 		}
 		p.mu.Lock()
-		baseline, seen := p.conductorBaseline[s.ID]
-		if !seen {
-			// Seed fingerprints from historical content so old blocks are
-			// silently ignored rather than re-sent on startup.
-			for _, b := range ParseReplyBlocks(out) {
+		if !p.conductorSeen[s.ID] {
+			historical := ParseReplyBlocks(out)
+			log.Printf("poller: scan replies: conductor %q first observation, seeding %d historical fingerprints", s.Title, len(historical))
+			for _, b := range historical {
 				p.processedReplies[b.WorkerID+":"+b.Body] = true
 			}
-			p.conductorBaseline[s.ID] = out
+			p.conductorSeen[s.ID] = true
 			p.mu.Unlock()
 			continue
 		}
-		newOut := NewOutputSince(baseline, out)
-		// Keep baseline fixed — newOut grows monotonically so a @deck-reply
-		// block that spans multiple poll cycles always appears complete.
+		blocks := ParseReplyBlocks(out)
+		log.Printf("poller: scan replies: conductor %q %d blocks in pane", s.Title, len(blocks))
 		p.mu.Unlock()
 
-		for _, block := range ParseReplyBlocks(newOut) {
+		for _, block := range blocks {
 			fingerprint := block.WorkerID + ":" + block.Body
 			p.mu.Lock()
 			if p.processedReplies[fingerprint] {
+				log.Printf("poller: scan replies: block for worker %q already processed, skipping", block.WorkerID)
 				p.mu.Unlock()
 				continue
 			}
@@ -331,6 +333,7 @@ func (p *Poller) scanConductorReplies(sessions []db.Session) {
 				log.Printf("poller: reply routing: worker %q not active (status=%s)", block.WorkerID, worker.Status)
 				continue
 			}
+			log.Printf("poller: reply routing: sending reply to worker %q (%s)", worker.Title, worker.TmuxSession)
 			msg := "Conductor reply: " + block.Body
 			if err := p.sender.SendKeys(worker.TmuxSession, 0, msg); err != nil {
 				log.Printf("poller: reply routing send %q: %v", block.WorkerID, err)

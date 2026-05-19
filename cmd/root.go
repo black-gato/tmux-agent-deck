@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -122,6 +123,7 @@ func runRoot(ctx context.Context, conn *sql.DB) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	setupDebugLog()
 	tc := rootTmuxClient
 	if tc == nil {
 		tc = tmux.NewClient()
@@ -130,6 +132,15 @@ func runRoot(ctx context.Context, conn *sql.DB) error {
 		return launchHeadless(ctx, conn, tc)
 	}
 	return launchTUI(conn, tc)
+}
+
+func setupDebugLog() {
+	f, err := os.OpenFile(filepath.Join(os.TempDir(), "deck-debug.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		return
+	}
+	log.SetOutput(f)
+	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
 }
 
 func launchTUI(conn *sql.DB, tc tmux.ClientIface) error {
