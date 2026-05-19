@@ -33,7 +33,8 @@ type Poller struct {
 	lastOutput        map[string]string
 	waitingSince      map[string]time.Time
 	contextPct        map[string]*int
-	conductorSeen    map[string]bool
+	conductorInitial map[string]int // pane length at first observation — never look before this
+	conductorOffset  map[string]int // pane length at last scan — advance each poll
 	processedReplies map[string]bool
 	heartbeatInterval time.Duration
 	lastHeartbeat     map[string]time.Time
@@ -81,7 +82,8 @@ func NewWithClockInterval(conn *sql.DB, tc TmuxReader, notifier waitingNotifier,
 		lastOutput:        make(map[string]string),
 		waitingSince:      make(map[string]time.Time),
 		contextPct:        make(map[string]*int),
-		conductorSeen:    make(map[string]bool),
+		conductorInitial: make(map[string]int),
+		conductorOffset:  make(map[string]int),
 		processedReplies: make(map[string]bool),
 		lastHeartbeat:     make(map[string]time.Time),
 		done:              make(chan struct{}),
@@ -299,25 +301,38 @@ func (p *Poller) scanConductorReplies(sessions []db.Session) {
 			continue
 		}
 		p.mu.Lock()
-		if !p.conductorSeen[s.ID] {
-			historical := ParseReplyBlocks(out)
-			log.Printf("poller: scan replies: conductor %q first observation, seeding %d historical fingerprints", s.Title, len(historical))
-			for _, b := range historical {
-				p.processedReplies[b.WorkerID+":"+b.Body] = true
-			}
-			p.conductorSeen[s.ID] = true
+		offset, seen := p.conductorOffset[s.ID]
+		if !seen {
+			initial := len(out)
+			log.Printf("poller: scan replies: conductor %q first observation at offset %d", s.Title, initial)
+			p.conductorInitial[s.ID] = initial
+			p.conductorOffset[s.ID] = initial
 			p.mu.Unlock()
 			continue
 		}
-		blocks := ParseReplyBlocks(out)
-		log.Printf("poller: scan replies: conductor %q %d blocks in pane", s.Title, len(blocks))
+		// Look back up to 4096 bytes to catch @deck-reply blocks that span
+		// poll boundaries (e.g. streamed AI responses), but never before the
+		// first-observation offset so historical blocks are always ignored.
+		const lookback = 4096
+		initial := p.conductorInitial[s.ID]
+		start := offset - lookback
+		if start < initial {
+			start = initial
+		}
+		if start > len(out) {
+			start = len(out)
+		}
+		newContent := out[start:]
+		p.conductorOffset[s.ID] = len(out)
+		blocks := ParseReplyBlocks(newContent)
+		log.Printf("poller: scan replies: conductor %q offset=%d->%d, %d blocks", s.Title, offset, len(out), len(blocks))
 		p.mu.Unlock()
 
 		for _, block := range blocks {
 			fingerprint := block.WorkerID + ":" + block.Body
 			p.mu.Lock()
 			if p.processedReplies[fingerprint] {
-				log.Printf("poller: scan replies: block for worker %q already processed, skipping", block.WorkerID)
+				log.Printf("poller: scan replies: block for worker %q already processed (body=%q), skipping", block.WorkerID, block.Body)
 				p.mu.Unlock()
 				continue
 			}
