@@ -118,7 +118,7 @@ func (c *Client) SessionActivity(name string) (time.Time, error) {
 }
 
 func (c *Client) CapturePaneOutput(name string) (string, error) {
-	out, err := cmdOutput("tmux", "capture-pane", "-t", name, "-p")
+	out, err := cmdOutput("tmux", "capture-pane", "-t", name, "-p", "-S", "-")
 	if err != nil {
 		return "", fmt.Errorf("capture-pane %q: %w", name, err)
 	}

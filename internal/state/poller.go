@@ -303,6 +303,7 @@ func (p *Poller) scanConductorReplies(sessions []db.Session) {
 			continue
 		}
 		newOut := NewOutputSince(baseline, out)
+		p.conductorBaseline[s.ID] = out
 		p.mu.Unlock()
 
 		for _, block := range ParseReplyBlocks(newOut) {
