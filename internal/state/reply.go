@@ -17,12 +17,25 @@ func ParseReplyBlocks(output string) []ReplyBlock {
 			i++
 			continue
 		}
-		workerID := strings.TrimSpace(strings.TrimPrefix(line, "@deck-reply worker="))
-		if workerID == "" {
+		rest := strings.TrimSpace(strings.TrimPrefix(line, "@deck-reply worker="))
+		if rest == "" {
 			i++
 			continue
 		}
 		i++
+
+		// Single-line form: @deck-reply worker=<id> <body> @deck-end
+		if endIdx := strings.Index(rest, "@deck-end"); endIdx >= 0 {
+			content := strings.TrimSpace(rest[:endIdx])
+			workerID, body := splitWorkerBody(content)
+			if workerID != "" && body != "" {
+				results = append(results, ReplyBlock{WorkerID: workerID, Body: body})
+			}
+			continue
+		}
+
+		// Multi-line form: id alone on the @deck-reply line, body lines follow
+		workerID := rest
 		var bodyLines []string
 		closed := false
 		for i < len(lines) {
@@ -53,6 +66,15 @@ func ParseReplyBlocks(output string) []ReplyBlock {
 		})
 	}
 	return results
+}
+
+// splitWorkerBody splits "id body text" at the first space.
+func splitWorkerBody(s string) (workerID, body string) {
+	idx := strings.Index(s, " ")
+	if idx < 0 {
+		return s, ""
+	}
+	return s[:idx], strings.TrimSpace(s[idx+1:])
 }
 
 func NewOutputSince(baseline, current string) string {

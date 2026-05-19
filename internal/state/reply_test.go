@@ -58,6 +58,39 @@ func TestParseReplyBlocksMultilineBodyNormalized(t *testing.T) {
 	}
 }
 
+func TestParseReplyBlocksSingleLine(t *testing.T) {
+	input := "@deck-reply worker=abc-123 hello world @deck-end"
+	blocks := state.ParseReplyBlocks(input)
+	if len(blocks) != 1 {
+		t.Fatalf("expected 1 block, got %d", len(blocks))
+	}
+	if blocks[0].WorkerID != "abc-123" {
+		t.Errorf("workerID: got %q want %q", blocks[0].WorkerID, "abc-123")
+	}
+	if blocks[0].Body != "hello world" {
+		t.Errorf("body: got %q want %q", blocks[0].Body, "hello world")
+	}
+}
+
+func TestParseReplyBlocksSingleLineIndented(t *testing.T) {
+	input := "  @deck-reply worker=abc-123 hello world @deck-end"
+	blocks := state.ParseReplyBlocks(input)
+	if len(blocks) != 1 {
+		t.Fatalf("expected 1 block, got %d", len(blocks))
+	}
+	if blocks[0].Body != "hello world" {
+		t.Errorf("body: got %q want %q", blocks[0].Body, "hello world")
+	}
+}
+
+func TestParseReplyBlocksSingleLineEmptyBodyIgnored(t *testing.T) {
+	input := "@deck-reply worker=abc-123 @deck-end"
+	blocks := state.ParseReplyBlocks(input)
+	if len(blocks) != 0 {
+		t.Fatalf("expected 0 blocks for empty single-line body, got %d", len(blocks))
+	}
+}
+
 func TestNewOutputSinceBaseline(t *testing.T) {
 	baseline := "old content"
 	current := "old content\nnew line"
