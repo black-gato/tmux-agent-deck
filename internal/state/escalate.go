@@ -50,7 +50,22 @@ func isContextLine(line string) bool {
 	if strings.Contains(line, "-- INSERT --") {
 		return false
 	}
-	if strings.Contains(line, "ctx:") && strings.Contains(line, "@") {
+	if strings.Contains(line, "ctx:") {
+		return false
+	}
+	if strings.HasPrefix(line, "❯ ") {
+		return false
+	}
+	if strings.HasPrefix(line, "✻ ") {
+		return false
+	}
+	if strings.HasPrefix(line, "※ ") {
+		return false
+	}
+	if strings.HasPrefix(line, "⎿") {
+		return false
+	}
+	if strings.Contains(line, "⏵⏵") {
 		return false
 	}
 	return strings.Trim(line, "─━═- ") != ""

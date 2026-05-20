@@ -793,11 +793,8 @@ func TestReplyRoutingSendsToWorker(t *testing.T) {
 	if len(replyCalls) == 0 {
 		t.Fatal("expected a SendKeys call to worker session")
 	}
-	if !strings.Contains(replyCalls[0].keys, "Conductor reply:") {
-		t.Errorf("reply missing prefix: %q", replyCalls[0].keys)
-	}
-	if !strings.Contains(replyCalls[0].keys, "unblock: run go test") {
-		t.Errorf("reply missing body: %q", replyCalls[0].keys)
+	if replyCalls[0].keys != "unblock: run go test" {
+		t.Errorf("reply body mismatch: got %q want %q", replyCalls[0].keys, "unblock: run go test")
 	}
 }
 

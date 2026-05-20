@@ -33,12 +33,12 @@ type Poller struct {
 	lastOutput        map[string]string
 	waitingSince      map[string]time.Time
 	contextPct        map[string]*int
-	conductorInitial map[string]int // pane length at first observation — never look before this
-	conductorOffset  map[string]int // pane length at last scan — advance each poll
+	conductorSeen    map[string]bool // conductor IDs whose pre-existing blocks have been seeded
 	processedReplies map[string]bool
 	heartbeatInterval time.Duration
 	lastHeartbeat     map[string]time.Time
 	done              chan struct{}
+	stopOnce          sync.Once
 }
 
 type waitingNotifier interface {
@@ -82,8 +82,7 @@ func NewWithClockInterval(conn *sql.DB, tc TmuxReader, notifier waitingNotifier,
 		lastOutput:        make(map[string]string),
 		waitingSince:      make(map[string]time.Time),
 		contextPct:        make(map[string]*int),
-		conductorInitial: make(map[string]int),
-		conductorOffset:  make(map[string]int),
+		conductorSeen:    make(map[string]bool),
 		processedReplies: make(map[string]bool),
 		lastHeartbeat:     make(map[string]time.Time),
 		done:              make(chan struct{}),
@@ -114,7 +113,7 @@ func (p *Poller) Start() {
 }
 
 func (p *Poller) Stop() {
-	close(p.done)
+	p.stopOnce.Do(func() { close(p.done) })
 }
 
 func (p *Poller) WaitingSinceSnapshot() map[string]time.Time {
@@ -275,7 +274,6 @@ func (p *Poller) autoEscalate(session db.Session, output string) {
 }
 
 func (p *Poller) scanConductorReplies(sessions []db.Session) {
-	log.Printf("poller: scanConductorReplies called, sender=%v sessions=%d", p.sender != nil, len(sessions))
 	if p.sender == nil {
 		return
 	}
@@ -290,7 +288,6 @@ func (p *Poller) scanConductorReplies(sessions []db.Session) {
 			conductorIDs[g.ConductorSessionID] = true
 		}
 	}
-	log.Printf("poller: scan replies: %d groups, %d conductor IDs: %v", len(groups), len(conductorIDs), conductorIDs)
 	for _, s := range sessions {
 		if !conductorIDs[s.ID] || s.TmuxSession == "" {
 			continue
@@ -300,44 +297,32 @@ func (p *Poller) scanConductorReplies(sessions []db.Session) {
 			log.Printf("poller: scan replies capture %q: %v", s.TmuxSession, err)
 			continue
 		}
+		blocks := ParseReplyBlocks(out)
 		p.mu.Lock()
-		offset, seen := p.conductorOffset[s.ID]
-		if !seen {
-			initial := len(out)
-			log.Printf("poller: scan replies: conductor %q first observation at offset %d", s.Title, initial)
-			p.conductorInitial[s.ID] = initial
-			p.conductorOffset[s.ID] = initial
+		if !p.conductorSeen[s.ID] {
+			for _, b := range blocks {
+				p.processedReplies[b.WorkerID+":"+b.Body] = true
+			}
+			p.conductorSeen[s.ID] = true
 			p.mu.Unlock()
 			continue
 		}
-		// Look back up to 4096 bytes to catch @deck-reply blocks that span
-		// poll boundaries (e.g. streamed AI responses), but never before the
-		// first-observation offset so historical blocks are always ignored.
-		const lookback = 4096
-		initial := p.conductorInitial[s.ID]
-		start := offset - lookback
-		if start < initial {
-			start = initial
-		}
-		if start > len(out) {
-			start = len(out)
-		}
-		newContent := out[start:]
-		p.conductorOffset[s.ID] = len(out)
-		blocks := ParseReplyBlocks(newContent)
-		log.Printf("poller: scan replies: conductor %q offset=%d->%d, %d blocks", s.Title, offset, len(out), len(blocks))
 		p.mu.Unlock()
 
 		for _, block := range blocks {
 			fingerprint := block.WorkerID + ":" + block.Body
 			p.mu.Lock()
 			if p.processedReplies[fingerprint] {
-				log.Printf("poller: scan replies: block for worker %q already processed (body=%q), skipping", block.WorkerID, block.Body)
 				p.mu.Unlock()
 				continue
 			}
 			p.processedReplies[fingerprint] = true
 			p.mu.Unlock()
+
+			if strings.Contains(block.Body, replyPrefix) {
+				log.Printf("poller: reply routing: body for worker %q contains @deck-reply marker, discarding", block.WorkerID)
+				continue
+			}
 
 			worker, err := db.GetSession(p.conn, block.WorkerID)
 			if err != nil {
@@ -348,9 +333,7 @@ func (p *Poller) scanConductorReplies(sessions []db.Session) {
 				log.Printf("poller: reply routing: worker %q not active (status=%s)", block.WorkerID, worker.Status)
 				continue
 			}
-			log.Printf("poller: reply routing: sending reply to worker %q (%s)", worker.Title, worker.TmuxSession)
-			msg := "Conductor reply: " + block.Body
-			if err := p.sender.SendKeys(worker.TmuxSession, 0, msg); err != nil {
+			if err := p.sender.SendKeys(worker.TmuxSession, 0, block.Body); err != nil {
 				log.Printf("poller: reply routing send %q: %v", block.WorkerID, err)
 				continue
 			}

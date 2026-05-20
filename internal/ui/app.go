@@ -234,9 +234,6 @@ func (m *Model) updateNavigation(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				if isNew && item.Session.StartupScript != "" {
 					m.PendingStartupScript = item.Session.StartupScript
 				}
-				if m.poller != nil {
-					m.poller.Stop()
-				}
 				return m, tea.Quit
 			}
 		}

@@ -42,3 +42,33 @@ func TestEscalationMessageIncludesContext(t *testing.T) {
 		t.Errorf("message missing context: %q", msg)
 	}
 }
+
+func TestEscalationMessageFiltersClaudeChrome(t *testing.T) {
+	s := db.Session{ID: "w1", Title: "worker", Status: "waiting"}
+	output := strings.Join([]string{
+		"⏺ Here is the actual answer Claude gave.",
+		"✻ Cooked for 1m 18s",
+		"※ recap: some recap line that should be dropped",
+		"❯ what is the bug we see now",
+		"⎿  Interrupted · What should Claude do instead?",
+		"──────────────────────────────",
+		"anthonymirville@host repo (main) [Sonnet 4.6] ctx:27%",
+		"⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents",
+	}, "\n")
+	msg := state.EscalationMessage(s, output)
+	if !strings.Contains(msg, "Here is the actual answer Claude gave.") {
+		t.Errorf("expected Claude response line in message: %q", msg)
+	}
+	for _, banned := range []string{
+		"Cooked for",
+		"recap:",
+		"what is the bug",
+		"Interrupted",
+		"ctx:27%",
+		"bypass permissions",
+	} {
+		if strings.Contains(msg, banned) {
+			t.Errorf("expected %q to be filtered out, got: %q", banned, msg)
+		}
+	}
+}

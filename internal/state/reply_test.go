@@ -128,6 +128,44 @@ func TestParseReplyBlocksSingleLineEmptyBodyIgnored(t *testing.T) {
 	}
 }
 
+func TestParseReplyBlocksSingleLineBodyMentionsEndMarker(t *testing.T) {
+	input := "@deck-reply worker=abc remember to close with @deck-end on its own line @deck-end"
+	blocks := state.ParseReplyBlocks(input)
+	if len(blocks) != 1 {
+		t.Fatalf("expected 1 block, got %d", len(blocks))
+	}
+	want := "remember to close with @deck-end on its own line"
+	if blocks[0].Body != want {
+		t.Errorf("body: got %q want %q", blocks[0].Body, want)
+	}
+}
+
+func TestParseReplyBlocksMultilineBodyMentionsEndMarker(t *testing.T) {
+	input := "@deck-reply worker=abc\nUse @deck-end at the end of replies.\nStand by.\n@deck-end"
+	blocks := state.ParseReplyBlocks(input)
+	if len(blocks) != 1 {
+		t.Fatalf("expected 1 block, got %d", len(blocks))
+	}
+	want := "Use @deck-end at the end of replies. | Stand by."
+	if blocks[0].Body != want {
+		t.Errorf("body: got %q want %q", blocks[0].Body, want)
+	}
+}
+
+func TestParseReplyBlocksWrappedEndMarker(t *testing.T) {
+	// Simulates tmux line-wrapping a single-line @deck-reply ... @deck-end:
+	// the body continues on the next line and ends with @deck-end inline.
+	input := "❯ @deck-reply worker=abc Good answer. Records set in Chicago.\n Stand by for your next task. @deck-end"
+	blocks := state.ParseReplyBlocks(input)
+	if len(blocks) != 1 {
+		t.Fatalf("expected 1 block, got %d", len(blocks))
+	}
+	want := "Good answer. Records set in Chicago. | Stand by for your next task."
+	if blocks[0].Body != want {
+		t.Errorf("body: got %q want %q", blocks[0].Body, want)
+	}
+}
+
 func TestNewOutputSinceBaseline(t *testing.T) {
 	baseline := "old content"
 	current := "old content\nnew line"

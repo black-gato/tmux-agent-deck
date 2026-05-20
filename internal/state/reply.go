@@ -30,7 +30,8 @@ func ParseReplyBlocks(output string) []ReplyBlock {
 		i++
 
 		// Single-line form: @deck-reply worker=<id> <body> @deck-end
-		if endIdx := strings.Index(rest, endMarker); endIdx >= 0 {
+		// Use LastIndex so the body can legitimately mention "@deck-end".
+		if endIdx := strings.LastIndex(rest, endMarker); endIdx >= 0 {
 			content := strings.TrimSpace(rest[:endIdx])
 			workerID, body := splitWorkerBody(content)
 			if workerID != "" && body != "" {
@@ -48,7 +49,13 @@ func ParseReplyBlocks(output string) []ReplyBlock {
 		closed := false
 		for i < len(lines) {
 			bl := strings.TrimSpace(lines[i])
-			if strings.Contains(bl, endMarker) {
+			// Only treat @deck-end as the terminator when it appears at the
+			// end of the line (or with only whitespace after) — otherwise the
+			// body may legitimately mention "@deck-end" mid-sentence.
+			if idx := strings.LastIndex(bl, endMarker); idx >= 0 && strings.TrimSpace(bl[idx+len(endMarker):]) == "" {
+				if pre := strings.TrimSpace(bl[:idx]); pre != "" {
+					bodyLines = append(bodyLines, pre)
+				}
 				closed = true
 				i++
 				break

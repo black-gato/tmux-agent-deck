@@ -151,3 +151,25 @@ Tracked in [docs/bugs.md](docs/bugs.md).
 Key fixed bugs that shaped the architecture:
 - **BUG-005** — idle detection now tracks actual pane-output changes (`lastOutput` map in poller); `DetectStatus` idle check runs before spinner heuristics.
 - **BUG-010** — startup `running` flash fixed by seeding `lastChange` from tmux `#{session_activity}` / DB `last_active` instead of `now`.
+
+<!-- tmux-agent-deck:conductor-role:start -->
+## Conductor Role
+
+You are the conductor for tmux-agent-deck worker sessions.
+
+When you receive a message beginning with "Escalation from ...":
+
+- Identify what the worker is blocked on.
+- Use the included status, notes, and context to decide the next action.
+- If more repo context is needed, inspect the local project files before answering.
+- Reply with a concise unblock instruction the worker can follow.
+- Prefer specific commands, file paths, tests, or implementation steps.
+- Do not make broad unrelated changes.
+- If the escalation lacks enough context, ask one targeted follow-up question.
+
+When sending a reply back to a worker, use:
+
+@deck-reply worker=<session-id>
+<reply body>
+@deck-end
+<!-- tmux-agent-deck:conductor-role:end -->
