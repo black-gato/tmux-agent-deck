@@ -2,6 +2,7 @@ package state
 
 import (
 	"database/sql"
+	"fmt"
 	"log"
 	"strings"
 	"sync"
@@ -28,11 +29,16 @@ type Poller struct {
 	now          func() time.Time
 	interval     time.Duration
 	mu           sync.RWMutex
-	lastChange   map[string]time.Time
-	lastOutput   map[string]string
-	waitingSince map[string]time.Time
-	contextPct   map[string]*int
-	done         chan struct{}
+	lastChange        map[string]time.Time
+	lastOutput        map[string]string
+	waitingSince      map[string]time.Time
+	contextPct        map[string]*int
+	conductorSeen    map[string]bool // conductor IDs whose pre-existing blocks have been seeded
+	processedReplies map[string]bool
+	heartbeatInterval time.Duration
+	lastHeartbeat     map[string]time.Time
+	done              chan struct{}
+	stopOnce          sync.Once
 }
 
 type waitingNotifier interface {
@@ -72,16 +78,23 @@ func NewWithClockInterval(conn *sql.DB, tc TmuxReader, notifier waitingNotifier,
 		notifier:     notifier,
 		now:          now,
 		interval:     interval,
-		lastChange:   make(map[string]time.Time),
-		lastOutput:   make(map[string]string),
-		waitingSince: make(map[string]time.Time),
-		contextPct:   make(map[string]*int),
-		done:         make(chan struct{}),
+		lastChange:        make(map[string]time.Time),
+		lastOutput:        make(map[string]string),
+		waitingSince:      make(map[string]time.Time),
+		contextPct:        make(map[string]*int),
+		conductorSeen:    make(map[string]bool),
+		processedReplies: make(map[string]bool),
+		lastHeartbeat:     make(map[string]time.Time),
+		done:              make(chan struct{}),
 	}
 }
 
 func (p *Poller) SetSender(s TmuxSender) {
 	p.sender = s
+}
+
+func (p *Poller) SetConductorHeartbeat(interval time.Duration) {
+	p.heartbeatInterval = interval
 }
 
 func (p *Poller) Start() {
@@ -100,7 +113,7 @@ func (p *Poller) Start() {
 }
 
 func (p *Poller) Stop() {
-	close(p.done)
+	p.stopOnce.Do(func() { close(p.done) })
 }
 
 func (p *Poller) WaitingSinceSnapshot() map[string]time.Time {
@@ -176,6 +189,8 @@ func (p *Poller) PollOnce() {
 	for groupPath := range digestGroups {
 		p.notifyDigest(groupPath)
 	}
+	p.scanConductorReplies(sessions)
+	p.runHeartbeats(sessions)
 }
 
 func (p *Poller) notifyWaiting(session db.Session) {
@@ -249,13 +264,168 @@ func (p *Poller) autoEscalate(session db.Session, output string) {
 		log.Printf("poller: auto-escalate %q: conductor %q unavailable", session.ID, conductor.Title)
 		return
 	}
-	if err := p.sender.SendKeys(conductor.TmuxSession, 0, escalationMessage(session, output)); err != nil {
+	if err := p.sender.SendKeys(conductor.TmuxSession, 0, EscalationMessage(session, output)); err != nil {
 		log.Printf("poller: auto-escalate send keys %q: %v", session.ID, err)
 		return
 	}
 	if err := p.sender.SendRawKeys(conductor.TmuxSession, 0, "Enter"); err != nil {
 		log.Printf("poller: auto-escalate submit %q: %v", session.ID, err)
 	}
+}
+
+func (p *Poller) scanConductorReplies(sessions []db.Session) {
+	if p.sender == nil {
+		return
+	}
+	groups, err := db.ListGroups(p.conn)
+	if err != nil {
+		log.Printf("poller: scan replies list groups: %v", err)
+		return
+	}
+	conductorIDs := make(map[string]bool, len(groups))
+	for _, g := range groups {
+		if g.ConductorSessionID != "" {
+			conductorIDs[g.ConductorSessionID] = true
+		}
+	}
+	for _, s := range sessions {
+		if !conductorIDs[s.ID] || s.TmuxSession == "" {
+			continue
+		}
+		out, err := p.tmux.CapturePaneOutput(s.TmuxSession)
+		if err != nil {
+			log.Printf("poller: scan replies capture %q: %v", s.TmuxSession, err)
+			continue
+		}
+		blocks := ParseReplyBlocks(out)
+		p.mu.Lock()
+		if !p.conductorSeen[s.ID] {
+			for _, b := range blocks {
+				p.processedReplies[b.WorkerID+":"+b.Body] = true
+			}
+			p.conductorSeen[s.ID] = true
+			p.mu.Unlock()
+			continue
+		}
+		p.mu.Unlock()
+
+		for _, block := range blocks {
+			fingerprint := block.WorkerID + ":" + block.Body
+			p.mu.Lock()
+			if p.processedReplies[fingerprint] {
+				p.mu.Unlock()
+				continue
+			}
+			p.processedReplies[fingerprint] = true
+			p.mu.Unlock()
+
+			if strings.Contains(block.Body, replyPrefix) {
+				log.Printf("poller: reply routing: body for worker %q contains @deck-reply marker, discarding", block.WorkerID)
+				continue
+			}
+
+			worker, err := db.GetSession(p.conn, block.WorkerID)
+			if err != nil {
+				log.Printf("poller: reply routing: unknown worker %q", block.WorkerID)
+				continue
+			}
+			if worker.Status == tmux.StatusStopped || worker.Status == tmux.StatusError || worker.TmuxSession == "" {
+				log.Printf("poller: reply routing: worker %q not active (status=%s)", block.WorkerID, worker.Status)
+				continue
+			}
+			if err := p.sender.SendKeys(worker.TmuxSession, 0, block.Body); err != nil {
+				log.Printf("poller: reply routing send %q: %v", block.WorkerID, err)
+				continue
+			}
+			if err := p.sender.SendRawKeys(worker.TmuxSession, 0, "Enter"); err != nil {
+				log.Printf("poller: reply routing submit %q: %v", block.WorkerID, err)
+			}
+		}
+	}
+}
+
+func (p *Poller) runHeartbeats(sessions []db.Session) {
+	if p.heartbeatInterval <= 0 || p.sender == nil {
+		return
+	}
+	now := p.now()
+	groups, err := db.ListGroups(p.conn)
+	if err != nil {
+		log.Printf("poller: heartbeat list groups: %v", err)
+		return
+	}
+	sessionMap := make(map[string]db.Session, len(sessions))
+	for _, s := range sessions {
+		sessionMap[s.ID] = s
+	}
+	for _, g := range groups {
+		if g.ConductorSessionID == "" {
+			continue
+		}
+		conductor, ok := sessionMap[g.ConductorSessionID]
+		if !ok || conductor.TmuxSession == "" {
+			continue
+		}
+		p.mu.RLock()
+		last := p.lastHeartbeat[g.Path]
+		p.mu.RUnlock()
+		if last.IsZero() {
+			p.mu.Lock()
+			p.lastHeartbeat[g.Path] = now
+			p.mu.Unlock()
+			continue
+		}
+		if now.Sub(last) < p.heartbeatInterval {
+			continue
+		}
+		groupSessions, err := db.ListGroupChildSessions(p.conn, g.Path, g.ConductorSessionID)
+		if err != nil {
+			log.Printf("poller: heartbeat list sessions %q: %v", g.Path, err)
+			continue
+		}
+		workers := make([]db.Session, 0, len(groupSessions))
+		for _, s := range groupSessions {
+			if s.ID != g.ConductorSessionID {
+				workers = append(workers, s)
+			}
+		}
+		msg := p.heartbeatMessage(g.Path, workers)
+		if err := p.sender.SendKeys(conductor.TmuxSession, 0, msg); err != nil {
+			log.Printf("poller: heartbeat send %q: %v", g.Path, err)
+			continue
+		}
+		_ = p.sender.SendRawKeys(conductor.TmuxSession, 0, "Enter")
+		p.mu.Lock()
+		p.lastHeartbeat[g.Path] = now
+		p.mu.Unlock()
+	}
+}
+
+func (p *Poller) heartbeatMessage(groupPath string, sessions []db.Session) string {
+	var waiting []db.Session
+	for _, s := range sessions {
+		if s.Status == tmux.StatusWaiting {
+			waiting = append(waiting, s)
+		}
+	}
+	if len(waiting) == 0 {
+		return fmt.Sprintf("Heartbeat for %s | All clear | %d sessions active", groupPath, len(sessions))
+	}
+	parts := []string{fmt.Sprintf("Heartbeat for %s | %d waiting", groupPath, len(waiting))}
+	p.mu.RLock()
+	now := p.now()
+	for _, s := range waiting {
+		part := fmt.Sprintf("Worker ID: %s | Title: %s", s.ID, s.Title)
+		if since, ok := p.waitingSince[s.ID]; ok {
+			part += fmt.Sprintf(" | Waiting: %s", now.Sub(since).Round(time.Second))
+		}
+		if s.Notes != "" {
+			part += fmt.Sprintf(" | Notes: %s", s.Notes)
+		}
+		parts = append(parts, part)
+	}
+	p.mu.RUnlock()
+	return strings.Join(parts, " | ")
 }
 
 func conductorUnavailable(conductor db.Session) bool {

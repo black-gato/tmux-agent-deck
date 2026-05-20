@@ -2,11 +2,13 @@ package ui
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
 	"time"
 
+	"github.com/black-gato/tmux-agent-deck/internal/conductordocs"
 	"github.com/black-gato/tmux-agent-deck/internal/db"
 	"github.com/black-gato/tmux-agent-deck/internal/state"
 	"github.com/black-gato/tmux-agent-deck/internal/tmux"
@@ -48,6 +50,7 @@ type Model struct {
 	searchQuery          string
 	contextPct           map[string]*int
 	navigateToGroup      string
+	InitConductorDocs    bool
 }
 
 func NewModel(conn *sql.DB, tc tmux.ClientIface, poller *state.Poller) *Model {
@@ -231,9 +234,6 @@ func (m *Model) updateNavigation(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				if isNew && item.Session.StartupScript != "" {
 					m.PendingStartupScript = item.Session.StartupScript
 				}
-				if m.poller != nil {
-					m.poller.Stop()
-				}
 				return m, tea.Quit
 			}
 		}
@@ -321,6 +321,12 @@ func (m *Model) updateNavigation(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			if err := m.Reload(); err != nil {
 				m.err = err
+				break
+			}
+			if m.InitConductorDocs && session.ProjectPath != "" {
+				if err := conductordocs.WriteBlock(session.ProjectPath); err != nil {
+					m.err = fmt.Errorf("init conductor docs: %w", err)
+				}
 			}
 		}
 	case "escalate-conductor":
@@ -860,6 +866,9 @@ func (m *Model) escalateSelectedSession() error {
 		return nil
 	}
 	conductor, err := db.GetGroupConductorSession(m.conn, session.GroupPath)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
 	if err != nil {
 		return fmt.Errorf("resolve conductor for %q: %w", session.GroupPath, err)
 	}
@@ -883,19 +892,11 @@ func conductorUnavailable(conductor db.Session) bool {
 }
 
 func (m *Model) escalationMessage(session *db.Session) string {
-	lines := []string{
-		fmt.Sprintf("Escalation from %s", session.Title),
-		fmt.Sprintf("Status: %s", session.Status),
+	out := ""
+	if m.output != "" {
+		out = m.output
 	}
-	if session.Notes != "" {
-		lines = append(lines, fmt.Sprintf("Notes: %s", session.Notes))
-	}
-	context := strings.Join(contextLines(m.output, 5), "\n")
-	if strings.TrimSpace(context) != "" {
-		lines = append(lines, "Current issue context:")
-		lines = append(lines, context)
-	}
-	return strings.Join(lines, "\n")
+	return state.EscalationMessage(*session, out)
 }
 
 func (m *Model) toggleArchivedSelection() error {

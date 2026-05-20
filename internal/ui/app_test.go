@@ -1645,7 +1645,7 @@ func TestCEscalatesToParentGroupConductor(t *testing.T) {
 	}
 }
 
-func TestCErrorsWhenConductorIsMissing(t *testing.T) {
+func TestCIsNoOpWhenConductorIsMissing(t *testing.T) {
 	conn := testutil.OpenTestDB(t)
 	if err := db.CreateGroup(conn, db.Group{Path: "work", Name: "work", Expanded: true}); err != nil {
 		t.Fatal(err)
@@ -1662,8 +1662,8 @@ func TestCErrorsWhenConductorIsMissing(t *testing.T) {
 
 	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'C'}})
 
-	if !strings.Contains(m.View(), "error: resolve conductor") {
-		t.Fatalf("expected error view, got %q", m.View())
+	if strings.Contains(m.View(), "error:") {
+		t.Fatalf("expected no error, got %q", m.View())
 	}
 }
 

@@ -7,14 +7,16 @@ import (
 	"github.com/black-gato/tmux-agent-deck/internal/db"
 )
 
-func escalationMessage(session db.Session, lastOutput string) string {
+func EscalationMessage(session db.Session, lastOutput string) string {
 	parts := []string{
 		fmt.Sprintf("Escalation from %s", session.Title),
+		fmt.Sprintf("Worker ID: %s", session.ID),
 		fmt.Sprintf("Status: %s", session.Status),
 	}
 	if session.Notes != "" {
 		parts = append(parts, fmt.Sprintf("Notes: %s", session.Notes))
 	}
+	parts = append(parts, fmt.Sprintf("Reply with: @deck-reply worker=%s ... @deck-end", session.ID))
 	context := strings.Join(contextLines(lastOutput, 5), " | ")
 	if strings.TrimSpace(context) != "" {
 		parts = append(parts, fmt.Sprintf("Context: %s", context))
@@ -48,7 +50,22 @@ func isContextLine(line string) bool {
 	if strings.Contains(line, "-- INSERT --") {
 		return false
 	}
-	if strings.Contains(line, "ctx:") && strings.Contains(line, "@") {
+	if strings.Contains(line, "ctx:") {
+		return false
+	}
+	if strings.HasPrefix(line, "❯ ") {
+		return false
+	}
+	if strings.HasPrefix(line, "✻ ") {
+		return false
+	}
+	if strings.HasPrefix(line, "※ ") {
+		return false
+	}
+	if strings.HasPrefix(line, "⎿") {
+		return false
+	}
+	if strings.Contains(line, "⏵⏵") {
 		return false
 	}
 	return strings.Trim(line, "─━═- ") != ""

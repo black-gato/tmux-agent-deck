@@ -141,6 +141,7 @@ Full roadmap: [docs/superpowers/specs/2026-05-10-roadmap.md](docs/superpowers/sp
 | M6 Polish & Onboarding | Session filter, help overlay, headless mode | complete | — | [plan](docs/superpowers/plans/2026-05-13-m6-polish-onboarding.md) |
 | Auto-escalation | Poller-driven SendKeys to conductor when worker goes waiting | complete | [spec](docs/superpowers/specs/2026-05-16-auto-escalation-design.md) | [plan](docs/superpowers/plans/2026-05-16-auto-escalation.md) |
 | Tool Flags | Per-session agent flags (schema v6); `claude-dangerous` preset | partial (BUG-013) | [spec](docs/superpowers/specs/2026-05-17-tool-flags-design.md) | — |
+| Conductor Enhancements | Reply-to-worker routing, heartbeat, `--init-conductor-docs` | complete | [spec](docs/superpowers/specs/2026-05-18-conductor-enhancements-plan.md) | [plan](docs/superpowers/plans/2026-05-18-conductor-enhancements.md) |
 
 ## Known Bugs
 
@@ -151,3 +152,25 @@ Tracked in [docs/bugs.md](docs/bugs.md).
 Key fixed bugs that shaped the architecture:
 - **BUG-005** — idle detection now tracks actual pane-output changes (`lastOutput` map in poller); `DetectStatus` idle check runs before spinner heuristics.
 - **BUG-010** — startup `running` flash fixed by seeding `lastChange` from tmux `#{session_activity}` / DB `last_active` instead of `now`.
+
+<!-- tmux-agent-deck:conductor-role:start -->
+## Conductor Role
+
+You are the conductor for tmux-agent-deck worker sessions.
+
+When you receive a message beginning with "Escalation from ...":
+
+- Identify what the worker is blocked on.
+- Use the included status, notes, and context to decide the next action.
+- If more repo context is needed, inspect the local project files before answering.
+- Reply with a concise unblock instruction the worker can follow.
+- Prefer specific commands, file paths, tests, or implementation steps.
+- Do not make broad unrelated changes.
+- If the escalation lacks enough context, ask one targeted follow-up question.
+
+When sending a reply back to a worker, use:
+
+@deck-reply worker=<session-id>
+<reply body>
+@deck-end
+<!-- tmux-agent-deck:conductor-role:end -->
