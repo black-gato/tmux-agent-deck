@@ -31,52 +31,12 @@ func expandPath(p string) string {
 	return os.ExpandEnv(p)
 }
 
-func (m *Model) advanceNewSessionStep() {
-	m.clearDialogCandidates()
-	switch m.dialog.step {
-	case 0:
-		val := strings.TrimSpace(m.dialog.value)
-		if val == "" {
-			return
-		}
-		m.dialog.savedTitle = val
-		m.dialog.step = 1
-		m.dialog.prompt = "Project path:"
-		m.dialog.value = m.dialog.savedPath
-	case 1:
-		m.dialog.savedPath = m.dialog.value
-		m.dialog.step = 2
-		m.dialog.prompt = "Tool:"
-		m.dialog.value = ""
-	case 2:
-		m.dialog.savedToolFlags = ""
-		m.dialog.step = 3
-		m.dialog.prompt = "Tool flags (optional):"
-		m.dialog.value = ""
-	case 3:
-		m.dialog.savedToolFlags = strings.TrimSpace(m.dialog.value)
-		m.dialog.step = 4
-		m.dialog.prompt = "Startup script (optional):"
-		m.dialog.value = ""
-	}
-}
-
 type dialogState struct {
 	prompt      string
 	value       string
 	ctrlKeys    []string
 	scope       bool
 	scopeLabels [2]string
-	// multi-step new-session flow
-	step              int
-	savedTitle        string
-	savedPath         string
-	savedToolFlags    string
-	toolOptions       []string
-	toolIdx           int
-	candidates        []string
-	candidatesFor     string
-	candidatesVisible bool
 }
 
 func newDialogState(prompt string) dialogState {
@@ -110,32 +70,10 @@ func (m *Model) updateDialog(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 	}
-	if m.mode == "new-session" && m.dialog.step == 2 {
-		switch msg.Type {
-		case tea.KeyLeft:
-			if m.dialog.toolIdx > 0 {
-				m.dialog.toolIdx--
-			} else {
-				m.dialog.toolIdx = len(m.dialog.toolOptions) - 1
-			}
-			return m, nil
-		case tea.KeyRight:
-			m.dialog.toolIdx = (m.dialog.toolIdx + 1) % len(m.dialog.toolOptions)
-			return m, nil
-		}
-	}
-	if m.mode == "new-session" && m.dialog.step == 1 && msg.Type == tea.KeyTab {
-		m.completeDialogPath()
-		return m, nil
-	}
 	switch msg.Type {
 	case tea.KeyEsc, tea.KeyCtrlC:
 		m.mode = ""
 	case tea.KeyEnter:
-		if m.mode == "new-session" && m.dialog.step < 4 {
-			m.advanceNewSessionStep()
-			return m, nil
-		}
 		m.commitDialog()
 		m.mode = ""
 		if err := m.Reload(); err != nil {
@@ -154,11 +92,9 @@ func (m *Model) updateDialog(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if len(m.dialog.value) > 0 {
 			m.dialog.value = m.dialog.value[:len(m.dialog.value)-1]
 		}
-		m.clearDialogCandidates()
 	default:
 		if len(msg.Runes) > 0 {
 			m.dialog.value += string(msg.Runes)
-			m.clearDialogCandidates()
 		}
 	}
 	return m, nil
@@ -180,54 +116,7 @@ func (m *Model) renderDialog() string {
 		}
 		return fmt.Sprintf("Broadcast [%s / %s]:\n> %s", label0, label1, m.dialog.value)
 	}
-	if m.mode == "new-session" && m.dialog.step == 2 {
-		var parts []string
-		for i, t := range m.dialog.toolOptions {
-			if i == m.dialog.toolIdx {
-				parts = append(parts, selectedStyle.Render("["+t+"]"))
-			} else {
-				parts = append(parts, dimStyle.Render(t))
-			}
-		}
-		return m.dialog.prompt + "\n← → to select:  " + strings.Join(parts, "  ")
-	}
-	if m.mode == "new-session" && m.dialog.step == 1 && m.dialog.candidatesVisible && len(m.dialog.candidates) > 0 {
-		return strings.Join(m.dialog.candidates, "  ") + "\n" + m.dialog.prompt + "\n> " + m.dialog.value
-	}
 	return m.dialog.prompt + "\n> " + m.dialog.value
-}
-
-func (m *Model) completeDialogPath() {
-	completed, candidates := completePath(m.dialog.value)
-	if len(candidates) == 0 {
-		m.clearDialogCandidates()
-		return
-	}
-	if len(candidates) == 1 {
-		m.dialog.value = completed
-		m.clearDialogCandidates()
-		return
-	}
-	if completed != m.dialog.value {
-		m.dialog.value = completed
-		m.dialog.candidates = candidates
-		m.dialog.candidatesFor = completed
-		m.dialog.candidatesVisible = false
-		return
-	}
-	if m.dialog.candidatesFor == m.dialog.value {
-		m.dialog.candidatesVisible = true
-		return
-	}
-	m.dialog.candidates = candidates
-	m.dialog.candidatesFor = m.dialog.value
-	m.dialog.candidatesVisible = false
-}
-
-func (m *Model) clearDialogCandidates() {
-	m.dialog.candidates = nil
-	m.dialog.candidatesFor = ""
-	m.dialog.candidatesVisible = false
 }
 
 func completePath(input string) (string, []string) {
@@ -290,28 +179,6 @@ func longestCommonPrefix(values []string) string {
 
 func (m *Model) commitDialog() {
 	switch m.mode {
-	case "new-session":
-		if m.dialog.savedTitle == "" {
-			return
-		}
-		groupPath := m.currentGroupPath()
-		path := strings.TrimSpace(m.dialog.savedPath)
-		if path == "" {
-			path = "."
-		}
-		if err := db.CreateSession(m.conn, db.Session{
-			ID:            uuid.New().String(),
-			Title:         m.dialog.savedTitle,
-			GroupPath:     groupPath,
-			ProjectPath:   expandPath(path),
-			Tool:          m.dialog.toolOptions[m.dialog.toolIdx],
-			ToolFlags:     m.dialog.savedToolFlags,
-			Status:        "stopped",
-			CreatedAt:     time.Now().Unix(),
-			StartupScript: strings.TrimSpace(m.dialog.value),
-		}); err != nil {
-			m.err = err
-		}
 	case "new-group":
 		val := strings.TrimSpace(m.dialog.value)
 		if val == "" {

@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -36,6 +35,7 @@ type Model struct {
 	height               int
 	mode                 string // "", "new-session", "new-group", "rename", "move"
 	dialog               dialogState
+	form                 formState
 	err                  error
 	PendingAttach        string // tmux session name to attach after TUI exits
 	PendingStartupScript string
@@ -181,6 +181,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.mode == "help" {
 			return m.updateHelp(msg)
 		}
+		if m.mode == "new-session" {
+			return m.updateForm(msg)
+		}
 		if m.mode != "" {
 			return m.updateDialog(msg)
 		}
@@ -238,38 +241,8 @@ func (m *Model) updateNavigation(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 	case "new-session":
-		defaultPath := "."
-		if wd, err := os.Getwd(); err == nil {
-			defaultPath = wd
-		}
-		defaultTool := "claude"
-		cursorGroupPath := m.currentGroupPath()
-		for _, g := range m.groups {
-			if g.Path == cursorGroupPath {
-				if g.DefaultPath != "" {
-					defaultPath = g.DefaultPath
-				}
-				if g.DefaultTool != "" {
-					defaultTool = g.DefaultTool
-				}
-				break
-			}
-		}
-		toolOptions := []string{"claude", "claude-dangerous", "aider", "cursor", "bash", "custom"}
-		toolIdx := 0
-		for i, t := range toolOptions {
-			if t == defaultTool {
-				toolIdx = i
-				break
-			}
-		}
 		m.mode = "new-session"
-		m.dialog = dialogState{
-			prompt:      "Session title:",
-			toolOptions: toolOptions,
-			toolIdx:     toolIdx,
-			savedPath:   defaultPath,
-		}
+		m.initSessionForm()
 	case "new-group":
 		m.mode = "new-group"
 		m.dialog = newDialogState("Group path (e.g. work/frontend):")
@@ -407,6 +380,19 @@ func (m *Model) View() string {
 
 	header := m.renderAppHeader()
 	footer := m.renderFooter()
+
+	if m.mode == "new-session" {
+		formStr := m.renderForm()
+		formLines := strings.Split(formStr, "\n")
+		formH := len(formLines)
+		listH := contentH - formH - 1
+		if listH < 1 {
+			listH = 1
+		}
+		listContent := RenderList(m.items, m.cursor, m.width, listH)
+		sep := strings.Repeat("─", m.width)
+		return header + "\n" + listContent + "\n" + sep + "\n" + formStr + "\n" + footer
+	}
 
 	if m.mode == "help" {
 		return header + "\n" + strings.Repeat("─", m.width) + "\n" + m.renderHelpOverlay(m.width, contentH) + "\n" + footer
