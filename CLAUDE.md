@@ -141,6 +141,7 @@ Full roadmap: [docs/superpowers/specs/2026-05-10-roadmap.md](docs/superpowers/sp
 | M6 Polish & Onboarding | Session filter, help overlay, headless mode | complete | — | [plan](docs/superpowers/plans/2026-05-13-m6-polish-onboarding.md) |
 | Auto-escalation | Poller-driven SendKeys to conductor when worker goes waiting | complete | [spec](docs/superpowers/specs/2026-05-16-auto-escalation-design.md) | [plan](docs/superpowers/plans/2026-05-16-auto-escalation.md) |
 | Tool Flags | Per-session agent flags (schema v6); `claude-dangerous` preset | partial (BUG-013) | [spec](docs/superpowers/specs/2026-05-17-tool-flags-design.md) | — |
+| Conductor Enhancements | Reply-to-worker routing, heartbeat, `--init-conductor-docs` | complete | [spec](docs/superpowers/specs/2026-05-18-conductor-enhancements-plan.md) | [plan](docs/superpowers/plans/2026-05-18-conductor-enhancements.md) |
 
 ## Known Bugs
 

@@ -1,7 +1,7 @@
 # Conductor Enhancements Plan
 
 **Date:** 2026-05-18
-**Status:** Planned
+**Status:** Implemented (2026-05-19)
 
 ## Overview
 
@@ -35,7 +35,7 @@ Relevant files:
 
 When `--auto-escalate` is enabled, the conductor can reply to an escalation using an explicit block marker. The poller detects the completed reply block and sends the reply back to the original worker session.
 
-Conductor reply format:
+Conductor reply formats (all supported):
 
 ```text
 @deck-reply worker=<session-id>
@@ -43,13 +43,17 @@ Conductor reply format:
 @deck-end
 ```
 
-Worker receives:
-
 ```text
-Conductor reply: <reply body>
+@deck-reply worker=<session-id> <reply body> @deck-end
 ```
 
-Multiline replies are normalized into one prompt-safe line by trimming non-empty lines and joining them with ` | `.
+The parser also tolerates a leading shell or TUI prompt prefix on either form (e.g. `❯ @deck-reply worker=…`) and a line-wrapped `@deck-end` placed at the end of a body line (common when the conductor's TUI wraps a long single-line block).
+
+A body may legitimately mention the literal string `@deck-end` — termination only fires on the final `@deck-end` in the single-line form, or on a line where `@deck-end` is followed only by whitespace in the multi-line form.
+
+Worker receives the raw extracted body (no prefix). Multi-line bodies are normalized into a single prompt-safe line by trimming non-empty lines and joining them with ` | `.
+
+If an extracted body itself contains `@deck-reply`, the reply is discarded and logged rather than forwarded — defensive guard against feedback loops, even though workers are not scanned for reply blocks.
 
 ### Escalation Message Changes
 
@@ -80,23 +84,29 @@ The exact sent tmux message can remain single-line normalized, matching the curr
 During `PollOnce`, after normal status updates and auto-escalation:
 
 1. Find active conductor sessions for groups.
-2. Capture conductor pane output.
-3. On first observation of each conductor pane, establish a baseline and ignore historical output.
-4. Parse complete `@deck-reply` blocks only from new output.
-5. Resolve the worker with `db.GetSession(workerID)`.
-6. Skip unknown workers and workers in `stopped` or `error`.
-7. Send `Conductor reply: <body>` to the worker pane.
-8. Submit with `SendRawKeys(..., "Enter")`.
-9. Track processed reply fingerprints in memory so visible markers are not resent every poll.
+2. Capture each conductor's full pane scrollback with `tmux capture-pane -p -S -`.
+3. Parse every `@deck-reply` block currently in the pane.
+4. On the first scan of each conductor, mark every parsed block as "seen" by adding its fingerprint to `processedReplies` and continue (seed pass — historical blocks never route).
+5. On subsequent scans, route any block whose fingerprint is not yet in `processedReplies`.
+6. Resolve the worker with `db.GetSession(workerID)`.
+7. Skip unknown workers and workers in `stopped` or `error`.
+8. Send the raw extracted body to the worker pane with `SendKeys`.
+9. Submit with `SendRawKeys(..., "Enter")`.
+
+Why fingerprint-only dedup (not byte-offset tracking): Claude and other altscreen TUIs redraw their panes constantly, so byte positions of the same logical block shift between captures. Fingerprints (`workerID:body`) are stable across redraws.
 
 ### State Model
 
-Use in-memory state only for v1:
+In-memory only:
 
-- Conductor pane baseline per conductor session
-- Processed reply fingerprints
+- `conductorSeen map[string]bool` — conductor IDs whose first-scan seed pass has completed.
+- `processedReplies map[string]bool` — fingerprints (`workerID:body`) already routed (or seeded from the first scan).
 
-No database migration is needed. If the app restarts, old visible reply blocks are ignored by the initial baseline pass.
+The poller is created once per binary run in `launchTUI` and survives attach/return cycles, so the seen-set and processed-set persist across TUI attaches. They are cleared only on binary restart.
+
+Tradeoff: on restart, every reply currently visible in the conductor pane is treated as historical and silently ignored. Workers that need to receive identical-body replies twice within a session will see only the first delivery; this is acceptable for v1.
+
+No database migration is needed.
 
 ### Enablement
 
@@ -109,27 +119,36 @@ Manual `C` escalations can include reply instructions, but automatic reply scann
 
 ### Tests
 
-Parser tests:
+Parser tests (`internal/state/reply_test.go`):
 
-- Complete block parses worker ID and body
-- Incomplete block is ignored
+- Complete multi-line block parses worker ID and body
+- Incomplete block (no `@deck-end`) is ignored
 - Multiple blocks parse independently
 - Empty body is ignored
-- Body lines are trimmed and normalized
+- Multi-line body trimmed and joined with ` | `
+- Single-line block parses
+- Single-line indented and prompt-prefixed (`❯ @deck-reply …`) forms parse
+- Multi-line prompt-prefixed and mixed (body on header line, `@deck-end` on next) forms parse
+- Single-line block with empty body is ignored
+- Wrapped `@deck-end` at end of a body line is recognized and preceding text kept
+- Body that mentions the literal `@deck-end` mid-sentence does not truncate (single-line and multi-line)
 
-Poller tests:
+Poller tests (`internal/state/poller_test.go`):
 
-- Baseline ignores old conductor markers
-- New marker sends one reply to the worker
+- First scan seeds historical markers; second scan does not replay them
+- New marker after seeding sends one reply (raw body, no prefix)
 - Duplicate visible marker is not resent
 - Unknown worker ID is skipped
 - Stopped/error worker is skipped
 - Only conductor panes are scanned
 
-Escalation tests:
+Escalation tests (`internal/state/escalate_test.go`):
 
-- Escalation message includes worker ID
-- Escalation message includes reply syntax
+- Message includes worker ID
+- Message includes `@deck-reply worker=<id> ... @deck-end` reply syntax
+- Notes are included when present
+- Context lines from pane output are included
+- Claude TUI chrome (`※ recap`, `✻ Cooked for …`, `⏵⏵ bypass permissions`, `❯ <user-input>`, `⎿`, `ctx:NN%` status bar) is filtered out of the context
 
 ## Feature 2: Tunable Conductor Heartbeat
 
