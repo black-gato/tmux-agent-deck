@@ -1,7 +1,10 @@
 package ui
 
 import (
+	"fmt"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -162,6 +165,47 @@ func (m *Model) resetPathCompletion() {
 	m.form.candidates = nil
 	m.form.candIdx = 0
 	m.form.candBase = ""
+}
+
+func slugBranch(branch string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(branch) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' {
+			b.WriteRune(r)
+		} else {
+			b.WriteRune('-')
+		}
+	}
+	return b.String()
+}
+
+func DeriveWorktreePath(repo, branch string) string {
+	return filepath.Join(filepath.Dir(repo), filepath.Base(repo)+"-"+slugBranch(branch))
+}
+
+func ResolveDefaultBranch(repo string) string {
+	out, err := exec.Command("git", "-C", repo, "symbolic-ref", "--short", "refs/remotes/origin/HEAD").Output()
+	if err == nil {
+		s := strings.TrimSpace(string(out))
+		if idx := strings.LastIndex(s, "/"); idx >= 0 {
+			return s[idx+1:]
+		}
+		return s
+	}
+	out, err = exec.Command("git", "-C", repo, "symbolic-ref", "--short", "HEAD").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+func runGitWorktreeAdd(repo, branch, dir, base string) error {
+	cmd := exec.Command("git", "-C", repo, "worktree", "add", "-b", branch, dir, base)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%s", strings.TrimSpace(string(out)))
+	}
+	return nil
 }
 
 func (m *Model) commitForm() {

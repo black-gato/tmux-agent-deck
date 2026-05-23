@@ -3,6 +3,7 @@ package ui_test
 import (
 	"database/sql"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 
@@ -201,5 +202,44 @@ func TestPathCompletionCycling(t *testing.T) {
 	// Still in new-session mode (haven't submitted)
 	if m.Mode() != "new-session" {
 		t.Errorf("expected still in new-session mode, got %s", m.Mode())
+	}
+}
+
+func TestDeriveWorktreePath(t *testing.T) {
+	cases := []struct {
+		repo, branch, want string
+	}{
+		{"/home/user/myrepo", "feature/my-branch", "/home/user/myrepo-feature-my-branch"},
+		{"/home/user/myrepo", "main", "/home/user/myrepo-main"},
+		{"/home/user/myrepo", "FEATure_X", "/home/user/myrepo-feature-x"},
+	}
+	for _, c := range cases {
+		got := ui.DeriveWorktreePath(c.repo, c.branch)
+		if got != c.want {
+			t.Errorf("DeriveWorktreePath(%q, %q) = %q, want %q", c.repo, c.branch, got, c.want)
+		}
+	}
+}
+
+func TestResolveDefaultBranch(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	repo := t.TempDir()
+	run := func(args ...string) {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = repo
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %s", args, out)
+		}
+	}
+	run("init")
+	run("config", "user.email", "test@test.com")
+	run("config", "user.name", "Test")
+	run("commit", "--allow-empty", "-m", "init")
+
+	branch := ui.ResolveDefaultBranch(repo)
+	if branch == "" {
+		t.Fatal("expected non-empty default branch")
 	}
 }
