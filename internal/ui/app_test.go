@@ -270,7 +270,10 @@ func TestNewSessionFlowCreatesSessionWithTool(t *testing.T) {
 	for _, r := range "/nonexistent-path-xyz/" {
 		m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
 	}
-	m.Update(tea.KeyMsg{Type: tea.KeyTab}) // PATH (no candidates) → TOOL
+	m.Update(tea.KeyMsg{Type: tea.KeyTab}) // PATH (no candidates) → BRANCH
+	m.Update(tea.KeyMsg{Type: tea.KeyTab}) // BRANCH → BASE
+	m.Update(tea.KeyMsg{Type: tea.KeyTab}) // BASE → WORKTREE
+	m.Update(tea.KeyMsg{Type: tea.KeyTab}) // WORKTREE → TOOL
 
 	// Cycle tool to "aider" (right arrow twice from "claude")
 	m.Update(tea.KeyMsg{Type: tea.KeyRight})
@@ -358,7 +361,10 @@ func TestNewSessionDialogPersistsToolFlags(t *testing.T) {
 	for _, r := range "/nonexistent-path-xyz/" {
 		m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
 	}
-	m.Update(tea.KeyMsg{Type: tea.KeyTab}) // PATH (no candidates) → TOOL
+	m.Update(tea.KeyMsg{Type: tea.KeyTab}) // PATH (no candidates) → BRANCH
+	m.Update(tea.KeyMsg{Type: tea.KeyTab}) // BRANCH → BASE
+	m.Update(tea.KeyMsg{Type: tea.KeyTab}) // BASE → WORKTREE
+	m.Update(tea.KeyMsg{Type: tea.KeyTab}) // WORKTREE → TOOL
 	m.Update(tea.KeyMsg{Type: tea.KeyTab}) // TOOL → FLAGS
 	for _, r := range "--dangerously-skip-permissions" {
 		m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})

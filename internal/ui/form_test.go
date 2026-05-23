@@ -136,7 +136,10 @@ func TestToolSelectorCycles(t *testing.T) {
 	for _, r := range []rune("/nonexistent-path-that-has-no-matches-xyz/") {
 		m = sendKey(m, rune_(r))
 	}
-	m = sendKey(m, key(tea.KeyTab)) // PATH (no candidates) → TOOL
+	m = sendKey(m, key(tea.KeyTab)) // PATH (no candidates) → BRANCH
+	m = sendKey(m, key(tea.KeyTab)) // BRANCH → BASE
+	m = sendKey(m, key(tea.KeyTab)) // BASE → WORKTREE
+	m = sendKey(m, key(tea.KeyTab)) // WORKTREE → TOOL
 
 	// Right arrow on TOOL cycles forward: claude → claude-dangerous
 	m = sendKey(m, key(tea.KeyRight))
