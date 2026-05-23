@@ -208,6 +208,22 @@ func runGitWorktreeAdd(repo, branch, dir, base string) error {
 	return nil
 }
 
+func (m *Model) updateWorktreeDefault() {
+	if m.form.worktreeUserEdited {
+		return
+	}
+	branch := m.form.fields[2].value
+	if branch == "" {
+		m.form.fields[4].value = ""
+		m.form.fields[4].cursor = 0
+		return
+	}
+	path := m.form.fields[1].value
+	derived := DeriveWorktreePath(path, branch)
+	m.form.fields[4].value = derived
+	m.form.fields[4].cursor = len([]rune(derived))
+}
+
 func (m *Model) commitForm() {
 	title := strings.TrimSpace(m.form.fields[0].value)
 	if title == "" {
@@ -237,6 +253,7 @@ func (m *Model) commitForm() {
 }
 
 func (m *Model) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	m.form.formErr = ""
 	switch msg.Type {
 	case tea.KeyEsc, tea.KeyCtrlC:
 		m.mode = ""
@@ -244,6 +261,9 @@ func (m *Model) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyEnter:
 		m.commitForm()
+		if m.form.formErr != "" {
+			return m, nil
+		}
 		m.mode = ""
 		if err := m.Reload(); err != nil {
 			m.err = err
@@ -302,6 +322,12 @@ func (m *Model) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if m.form.focusField == 1 {
 				m.resetPathCompletion()
 			}
+			if m.form.focusField == 4 {
+				m.form.worktreeUserEdited = true
+			}
+			if m.form.focusField == 2 {
+				m.updateWorktreeDefault()
+			}
 		}
 		return m, nil
 
@@ -327,6 +353,12 @@ func (m *Model) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				insertRune(f, msg.Runes[0])
 				if m.form.focusField == 1 {
 					m.resetPathCompletion()
+				}
+				if m.form.focusField == 4 {
+					m.form.worktreeUserEdited = true
+				}
+				if m.form.focusField == 2 {
+					m.updateWorktreeDefault()
 				}
 			}
 		}

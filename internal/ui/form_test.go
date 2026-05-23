@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/black-gato/tmux-agent-deck/internal/db"
@@ -218,6 +219,60 @@ func TestDeriveWorktreePath(t *testing.T) {
 		if got != c.want {
 			t.Errorf("DeriveWorktreePath(%q, %q) = %q, want %q", c.repo, c.branch, got, c.want)
 		}
+	}
+}
+
+func TestWorktreeAutoFillsFromBranch(t *testing.T) {
+	m, _ := openModel(t)
+	m = sendKey(m, rune_('n'))
+	// Down twice: TITLE(0) → PATH(1) → BRANCH(2)
+	m = sendKey(m, key(tea.KeyDown))
+	m = sendKey(m, key(tea.KeyDown))
+	// Type branch name
+	for _, r := range "feat-x" {
+		m = sendKey(m, rune_(r))
+	}
+	// Down twice: BRANCH(2) → BASE(3) → WORKTREE(4)
+	m = sendKey(m, key(tea.KeyDown))
+	m = sendKey(m, key(tea.KeyDown))
+	// WORKTREE field should be auto-filled and contain "feat-x"
+	view := m.View()
+	if !strings.Contains(view, "feat-x") {
+		t.Errorf("expected WORKTREE to auto-fill with branch slug, view:\n%s", view)
+	}
+}
+
+func TestWorktreeUserEditPreventsAutoFill(t *testing.T) {
+	m, _ := openModel(t)
+	m = sendKey(m, rune_('n'))
+	// Navigate to WORKTREE (index 4): Down 4 times from TITLE
+	for i := 0; i < 4; i++ {
+		m = sendKey(m, key(tea.KeyDown))
+	}
+	// User manually types something in WORKTREE
+	for _, r := range "my-custom-dir" {
+		m = sendKey(m, rune_(r))
+	}
+	// Go back to BRANCH (index 2): Up 2 times
+	m = sendKey(m, key(tea.KeyUp))
+	m = sendKey(m, key(tea.KeyUp))
+	// Type a branch name — should NOT overwrite WORKTREE
+	for _, r := range "new-branch" {
+		m = sendKey(m, rune_(r))
+	}
+	// Go to WORKTREE (Down 2)
+	m = sendKey(m, key(tea.KeyDown))
+	m = sendKey(m, key(tea.KeyDown))
+	// WORKTREE should still show "my-custom-dir", not the derived path from "new-branch"
+	view := m.View()
+	if !strings.Contains(view, "my-custom-dir") {
+		t.Errorf("expected WORKTREE to preserve user edit, view:\n%s", view)
+	}
+	// The derived worktree path would end in "-new-branch"; if auto-fill ran it would show
+	// something like "/path/to/repo-new-branch" in the WORKTREE row.
+	// We verify "my-custom-dir" is present (above) and not a derived path slug.
+	if strings.Contains(view, "repo-new-branch") || strings.Contains(view, "ui-new-branch") {
+		t.Errorf("expected WORKTREE NOT to auto-fill after user edit, view:\n%s", view)
 	}
 }
 
