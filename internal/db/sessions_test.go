@@ -498,3 +498,29 @@ func TestListGroupChildSessionsExcludesOwnConductorSubgroups(t *testing.T) {
 		t.Errorf("expected sub-group with own conductor excluded, got: %v", ids)
 	}
 }
+
+func TestGetSessionByTmuxName(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	_ = dbpkg.CreateGroup(conn, dbpkg.Group{Path: "g", Name: "g", DefaultTool: "claude"})
+	s := dbpkg.Session{
+		ID: "s1", Title: "worker-a", GroupPath: "g",
+		TmuxSession: "tmux-abc", Tool: "claude", Status: "running",
+		CreatedAt: 1,
+	}
+	if err := dbpkg.CreateSession(conn, s); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := dbpkg.GetSessionByTmuxName(conn, "tmux-abc")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got.ID != "s1" {
+		t.Errorf("got ID %q, want %q", got.ID, "s1")
+	}
+
+	_, err = dbpkg.GetSessionByTmuxName(conn, "not-a-session")
+	if err == nil {
+		t.Error("expected error for missing session, got nil")
+	}
+}

@@ -65,6 +65,20 @@ func GetSessionByTitle(conn *sql.DB, title string) (Session, error) {
 	return s, nil
 }
 
+func GetSessionByTmuxName(conn *sql.DB, tmuxSession string) (Session, error) {
+	var s Session
+	var archived int
+	err := conn.QueryRow(
+		`SELECT id, title, group_path, tmux_session, project_path, tool, status, created_at, last_active, notes, archived, tags, startup_script, tool_flags
+		 FROM sessions WHERE tmux_session = ? LIMIT 1`, tmuxSession,
+	).Scan(&s.ID, &s.Title, &s.GroupPath, &s.TmuxSession, &s.ProjectPath, &s.Tool, &s.Status, &s.CreatedAt, &s.LastActive, &s.Notes, &archived, &s.Tags, &s.StartupScript, &s.ToolFlags)
+	if err != nil {
+		return Session{}, fmt.Errorf("get session by tmux name %q: %w", tmuxSession, err)
+	}
+	s.Archived = archived == 1
+	return s, nil
+}
+
 func GetGroupConductorSession(conn *sql.DB, groupPath string) (Session, error) {
 	for _, path := range conductorLookupPaths(groupPath) {
 		s, err := getExactGroupConductorSession(conn, path)
