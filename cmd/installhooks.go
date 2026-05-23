@@ -127,8 +127,18 @@ func hasOurEntry(arr []any) bool {
 		if !ok {
 			continue
 		}
+		// flat format (old/incorrect — detect for idempotency during migration)
 		if m["command"] == deckHookCommand {
 			return true
+		}
+		// correct wrapped format
+		if hooks, ok := m["hooks"].([]any); ok {
+			for _, h := range hooks {
+				hm, ok := h.(map[string]any)
+				if ok && hm["command"] == deckHookCommand {
+					return true
+				}
+			}
 		}
 	}
 	return false
@@ -138,23 +148,51 @@ func removeOurEntry(arr []any) []any {
 	var out []any
 	for _, entry := range arr {
 		m, ok := entry.(map[string]any)
-		if ok && m["command"] == deckHookCommand {
+		if !ok {
+			out = append(out, entry)
 			continue
 		}
-		out = append(out, entry)
+		// flat format (old/incorrect) — drop entirely
+		if m["command"] == deckHookCommand {
+			continue
+		}
+		// wrapped format — filter our command out of the hooks array
+		if hooks, ok := m["hooks"].([]any); ok {
+			var remaining []any
+			for _, h := range hooks {
+				hm, ok := h.(map[string]any)
+				if ok && hm["command"] == deckHookCommand {
+					continue
+				}
+				remaining = append(remaining, h)
+			}
+			if len(remaining) == 0 {
+				continue // group is now empty, drop it
+			}
+			updated := make(map[string]any, len(m))
+			for k, v := range m {
+				updated[k] = v
+			}
+			updated["hooks"] = remaining
+			out = append(out, updated)
+			continue
+		}
+		out = append(out, m)
 	}
 	return out
 }
 
 func buildEntry(async bool) map[string]any {
-	entry := map[string]any{
+	hook := map[string]any{
 		"type":    "command",
 		"command": deckHookCommand,
 	}
 	if async {
-		entry["async"] = true
+		hook["async"] = true
 	}
-	return entry
+	return map[string]any{
+		"hooks": []any{hook},
+	}
 }
 
 func init() {

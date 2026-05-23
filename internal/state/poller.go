@@ -17,6 +17,7 @@ import (
 // Defined here so tests can stub it without importing the real client.
 type TmuxReader interface {
 	CapturePaneOutput(name string) (string, error)
+	CapturePaneView(session string, pane int) (string, error)
 	SessionExists(name string) (bool, error)
 	SessionActivity(name string) (time.Time, error)
 }
@@ -249,6 +250,37 @@ func (p *Poller) digestBody(conductorTitle string, sessions []db.Session) string
 	return strings.Join(lines, "\n")
 }
 
+func isClaudeSession(tool string) bool {
+	return tool == "claude" || tool == "claude-dangerous"
+}
+
+func isInVimInsertMode(paneContent string) bool {
+	return strings.Contains(paneContent, "-- INSERT --")
+}
+
+// sendToSession sends text to a tmux session and submits with Enter.
+// For claude tool sessions it captures the current pane view first and only
+// sends Escape+i if the session is NOT already in vim INSERT mode. This
+// avoids the ESC disambiguation problem where ESC immediately followed by i
+// is read as the escape sequence Meta-i rather than two separate keystrokes.
+func (p *Poller) sendToSession(session string, tool string, text string) error {
+	if isClaudeSession(tool) {
+		view, err := p.tmux.CapturePaneView(session, 0)
+		if err != nil || !isInVimInsertMode(view) {
+			if err := p.sender.SendRawKeys(session, 0, "Escape"); err != nil {
+				return err
+			}
+			if err := p.sender.SendKeys(session, 0, "i"); err != nil {
+				return err
+			}
+		}
+	}
+	if err := p.sender.SendKeys(session, 0, text); err != nil {
+		return err
+	}
+	return p.sender.SendRawKeys(session, 0, "Enter")
+}
+
 func (p *Poller) autoEscalate(session db.Session, output string) {
 	if p.sender == nil {
 		return
@@ -264,12 +296,8 @@ func (p *Poller) autoEscalate(session db.Session, output string) {
 		log.Printf("poller: auto-escalate %q: conductor %q unavailable", session.ID, conductor.Title)
 		return
 	}
-	if err := p.sender.SendKeys(conductor.TmuxSession, 0, EscalationMessage(session, output)); err != nil {
-		log.Printf("poller: auto-escalate send keys %q: %v", session.ID, err)
-		return
-	}
-	if err := p.sender.SendRawKeys(conductor.TmuxSession, 0, "Enter"); err != nil {
-		log.Printf("poller: auto-escalate submit %q: %v", session.ID, err)
+	if err := p.sendToSession(conductor.TmuxSession, conductor.Tool, EscalationMessage(session, output)); err != nil {
+		log.Printf("poller: auto-escalate send %q: %v", session.ID, err)
 	}
 }
 
@@ -333,12 +361,8 @@ func (p *Poller) scanConductorReplies(sessions []db.Session) {
 				log.Printf("poller: reply routing: worker %q not active (status=%s)", block.WorkerID, worker.Status)
 				continue
 			}
-			if err := p.sender.SendKeys(worker.TmuxSession, 0, block.Body); err != nil {
+			if err := p.sendToSession(worker.TmuxSession, worker.Tool, block.Body); err != nil {
 				log.Printf("poller: reply routing send %q: %v", block.WorkerID, err)
-				continue
-			}
-			if err := p.sender.SendRawKeys(worker.TmuxSession, 0, "Enter"); err != nil {
-				log.Printf("poller: reply routing submit %q: %v", block.WorkerID, err)
 			}
 		}
 	}
@@ -390,11 +414,10 @@ func (p *Poller) runHeartbeats(sessions []db.Session) {
 			}
 		}
 		msg := p.heartbeatMessage(g.Path, workers)
-		if err := p.sender.SendKeys(conductor.TmuxSession, 0, msg); err != nil {
+		if err := p.sendToSession(conductor.TmuxSession, conductor.Tool, msg); err != nil {
 			log.Printf("poller: heartbeat send %q: %v", g.Path, err)
 			continue
 		}
-		_ = p.sender.SendRawKeys(conductor.TmuxSession, 0, "Enter")
 		p.mu.Lock()
 		p.lastHeartbeat[g.Path] = now
 		p.mu.Unlock()

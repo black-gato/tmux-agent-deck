@@ -8,6 +8,26 @@ import (
 	"testing"
 )
 
+// countWrappedCommand counts how many hook groups in arr contain command in their "hooks" array.
+func countWrappedCommand(arr []any, command string) int {
+	count := 0
+	for _, entry := range arr {
+		m, ok := entry.(map[string]any)
+		if !ok {
+			continue
+		}
+		if hooks, ok := m["hooks"].([]any); ok {
+			for _, h := range hooks {
+				hm, ok := h.(map[string]any)
+				if ok && hm["command"] == command {
+					count++
+				}
+			}
+		}
+	}
+	return count
+}
+
 func TestInstallHooks_FreshFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "settings.json")
@@ -34,19 +54,8 @@ func TestInstallHooks_FreshFile(t *testing.T) {
 			t.Errorf("event %q: expected at least one hook entry", event)
 			continue
 		}
-		found := false
-		for _, entry := range arr {
-			m, ok := entry.(map[string]any)
-			if !ok {
-				continue
-			}
-			if m["command"] == "tmux-agent-deck hook-handler" {
-				found = true
-				break
-			}
-		}
-		if !found {
-			t.Errorf("event %q: tmux-agent-deck hook-handler not found in hooks", event)
+		if countWrappedCommand(arr, "tmux-agent-deck hook-handler") == 0 {
+			t.Errorf("event %q: tmux-agent-deck hook-handler not found in wrapped hooks", event)
 		}
 	}
 }
@@ -67,13 +76,7 @@ func TestInstallHooks_Idempotent(t *testing.T) {
 	_ = json.Unmarshal(data, &settings)
 	hooks := settings["hooks"].(map[string]any)
 	stop := hooks["Stop"].([]any)
-	count := 0
-	for _, entry := range stop {
-		m, ok := entry.(map[string]any)
-		if ok && m["command"] == "tmux-agent-deck hook-handler" {
-			count++
-		}
-	}
+	count := countWrappedCommand(stop, "tmux-agent-deck hook-handler")
 	if count != 1 {
 		t.Errorf("expected exactly 1 hook-handler entry for Stop after two installs, got %d", count)
 	}
@@ -155,14 +158,23 @@ func TestInstallHooks_PermissionRequestIsSync(t *testing.T) {
 	_ = json.Unmarshal(data, &settings)
 	hooks := settings["hooks"].(map[string]any)
 	arr := hooks["PermissionRequest"].([]any)
-	for _, entry := range arr {
-		m, ok := entry.(map[string]any)
-		if !ok || m["command"] != "tmux-agent-deck hook-handler" {
+	for _, group := range arr {
+		gm, ok := group.(map[string]any)
+		if !ok {
 			continue
 		}
-		// async must be absent (false/omitted) for PermissionRequest
-		if v, exists := m["async"]; exists && v == true {
-			t.Error("PermissionRequest hook-handler must not be async")
+		innerHooks, ok := gm["hooks"].([]any)
+		if !ok {
+			continue
+		}
+		for _, h := range innerHooks {
+			hm, ok := h.(map[string]any)
+			if !ok || hm["command"] != "tmux-agent-deck hook-handler" {
+				continue
+			}
+			if v, exists := hm["async"]; exists && v == true {
+				t.Error("PermissionRequest hook-handler must not be async")
+			}
 		}
 	}
 }

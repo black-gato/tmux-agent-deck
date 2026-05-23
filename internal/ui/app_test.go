@@ -857,11 +857,15 @@ func TestSendPaneCtrlCharSentAsRawKey(t *testing.T) {
 	m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
 	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 
-	if len(fake.SentRawKeys) != 1 {
-		t.Fatalf("expected 1 SendRawKeys call, got %d", len(fake.SentRawKeys))
+	// C-c then Enter (submit)
+	if len(fake.SentRawKeys) != 2 {
+		t.Fatalf("expected 2 SendRawKeys calls (C-c + Enter), got %d", len(fake.SentRawKeys))
 	}
 	if fake.SentRawKeys[0].Keys != "C-c" {
-		t.Errorf("raw keys: got %q want C-c", fake.SentRawKeys[0].Keys)
+		t.Errorf("raw keys[0]: got %q want C-c", fake.SentRawKeys[0].Keys)
+	}
+	if fake.SentRawKeys[1].Keys != "Enter" {
+		t.Errorf("raw keys[1]: got %q want Enter", fake.SentRawKeys[1].Keys)
 	}
 	if len(fake.SentKeys) != 0 {
 		t.Errorf("expected no literal SendKeys call, got %d", len(fake.SentKeys))
@@ -896,11 +900,14 @@ func TestSendPaneCtrlJSendsEnter(t *testing.T) {
 	if fake.SentKeys[0].Keys != "hello" {
 		t.Errorf("keys: got %q want hello", fake.SentKeys[0].Keys)
 	}
-	if len(fake.SentRawKeys) != 1 {
-		t.Fatalf("expected 1 SendRawKeys call, got %d", len(fake.SentRawKeys))
+	if len(fake.SentRawKeys) != 2 {
+		t.Fatalf("expected 2 SendRawKeys calls (Ctrl+J Enter + submit Enter), got %d: %v", len(fake.SentRawKeys), fake.SentRawKeys)
 	}
 	if fake.SentRawKeys[0].Keys != "Enter" {
-		t.Errorf("raw keys: got %q want Enter", fake.SentRawKeys[0].Keys)
+		t.Errorf("raw keys[0]: got %q want Enter (from Ctrl+J)", fake.SentRawKeys[0].Keys)
+	}
+	if fake.SentRawKeys[1].Keys != "Enter" {
+		t.Errorf("raw keys[1]: got %q want Enter (submit)", fake.SentRawKeys[1].Keys)
 	}
 }
 
@@ -2134,8 +2141,8 @@ func TestSendPaneLiteralTextSentViaSendKeys(t *testing.T) {
 	if fake.SentKeys[0].Keys != "hello world" {
 		t.Fatalf("expected literal text %q, got %q", "hello world", fake.SentKeys[0].Keys)
 	}
-	if len(fake.SentRawKeys) != 0 {
-		t.Fatalf("expected no raw key calls for plain text, got %v", fake.SentRawKeys)
+	if len(fake.SentRawKeys) != 1 || fake.SentRawKeys[0].Keys != "Enter" {
+		t.Fatalf("expected exactly 1 raw key (Enter for submit), got %v", fake.SentRawKeys)
 	}
 }
 
@@ -2532,18 +2539,23 @@ func TestSendPaneVimModeSendsEscapeIPrefixBeforeText(t *testing.T) {
 	}
 	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 
-	// Escape raw key must arrive before "i" literal, which must arrive before "hello"
-	if len(fake.SentRawKeys) < 1 || fake.SentRawKeys[0].Keys != "Escape" {
-		t.Fatalf("expected first raw key to be Escape, got: %v", fake.SentRawKeys)
-	}
+	// 'i' literal must arrive before "hello"; no Escape raw key (avoids Meta-i timing issue)
 	if len(fake.SentKeys) < 2 {
-		t.Fatalf("expected at least 2 SendKeys calls (i + hello), got %d", len(fake.SentKeys))
+		t.Fatalf("expected at least 2 SendKeys calls (i + hello), got %d: %v", len(fake.SentKeys), fake.SentKeys)
 	}
 	if fake.SentKeys[0].Keys != "i" {
 		t.Errorf("first SendKeys should be 'i' to enter insert mode, got %q", fake.SentKeys[0].Keys)
 	}
 	if fake.SentKeys[1].Keys != "hello" {
 		t.Errorf("second SendKeys should be 'hello', got %q", fake.SentKeys[1].Keys)
+	}
+	for _, k := range fake.SentRawKeys {
+		if k.Keys == "Escape" {
+			t.Errorf("Escape must not be sent (causes Meta-i timing issue), got raw keys: %v", fake.SentRawKeys)
+		}
+	}
+	if len(fake.SentRawKeys) != 1 || fake.SentRawKeys[0].Keys != "Enter" {
+		t.Errorf("expected exactly one Enter raw key (submit), got: %v", fake.SentRawKeys)
 	}
 }
 
@@ -2567,8 +2579,13 @@ func TestSendPaneWithoutVimModeDoesNotSendEscapePrefix(t *testing.T) {
 	}
 	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 
-	if len(fake.SentRawKeys) != 0 {
-		t.Errorf("no raw keys expected without vim mode, got: %v", fake.SentRawKeys)
+	for _, k := range fake.SentRawKeys {
+		if k.Keys == "Escape" {
+			t.Errorf("no Escape prefix expected without vim mode, got: %v", fake.SentRawKeys)
+		}
+	}
+	if len(fake.SentRawKeys) != 1 || fake.SentRawKeys[0].Keys != "Enter" {
+		t.Errorf("expected exactly one Enter raw key (submit), got: %v", fake.SentRawKeys)
 	}
 	if len(fake.SentKeys) != 1 || fake.SentKeys[0].Keys != "hello" {
 		t.Errorf("expected exactly one SendKeys 'hello', got: %v", fake.SentKeys)
@@ -2643,8 +2660,13 @@ func TestSendPaneClaudeInInsertModeSkipsVimPrefix(t *testing.T) {
 	}
 	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 
-	if len(fake.SentRawKeys) != 0 {
-		t.Errorf("INSERT mode detected: no ESC prefix expected, got raw keys: %v", fake.SentRawKeys)
+	for _, k := range fake.SentRawKeys {
+		if k.Keys == "Escape" {
+			t.Errorf("INSERT mode detected: no ESC prefix expected, got raw keys: %v", fake.SentRawKeys)
+		}
+	}
+	if len(fake.SentRawKeys) != 1 || fake.SentRawKeys[0].Keys != "Enter" {
+		t.Errorf("expected exactly one Enter raw key (submit), got: %v", fake.SentRawKeys)
 	}
 	if len(fake.SentKeys) != 1 || fake.SentKeys[0].Keys != "hello" {
 		t.Errorf("expected exactly one SendKeys 'hello', got: %v", fake.SentKeys)
@@ -2671,11 +2693,17 @@ func TestSendPaneClaudeInNormalModeAddsVimPrefix(t *testing.T) {
 	}
 	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 
-	if len(fake.SentRawKeys) < 1 || fake.SentRawKeys[0].Keys != "Escape" {
-		t.Fatalf("normal mode detected: expected Escape prefix, got raw keys: %v", fake.SentRawKeys)
+	// No Escape (avoids Meta-i timing issue); 'i' goes via SendKeys to enter INSERT from COMMAND mode
+	for _, k := range fake.SentRawKeys {
+		if k.Keys == "Escape" {
+			t.Errorf("Escape must not be sent (causes Meta-i timing issue), got raw keys: %v", fake.SentRawKeys)
+		}
+	}
+	if len(fake.SentRawKeys) != 1 || fake.SentRawKeys[0].Keys != "Enter" {
+		t.Errorf("expected exactly one Enter raw key (submit), got: %v", fake.SentRawKeys)
 	}
 	if len(fake.SentKeys) < 2 || fake.SentKeys[0].Keys != "i" || fake.SentKeys[1].Keys != "hello" {
-		t.Errorf("expected 'i' then 'hello', got: %v", fake.SentKeys)
+		t.Errorf("expected 'i' then 'hello' via SendKeys, got: %v", fake.SentKeys)
 	}
 }
 
@@ -2708,11 +2736,22 @@ func TestBroadcastAutoDetectsPerSession(t *testing.T) {
 	}
 	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 
-	// s1 (INSERT mode): just "ping" — no ESC+i prefix
-	// s2 (normal mode): ESC + "i" + "ping"
-	// Total SentRawKeys: 1 (Escape for s2)
-	if len(fake.SentRawKeys) != 1 || fake.SentRawKeys[0].Keys != "Escape" {
-		t.Errorf("expected 1 Escape raw key for normal-mode session, got: %v", fake.SentRawKeys)
+	// s1 (INSERT mode): "ping" + Enter — no prefix
+	// s2 (COMMAND mode): "i" (via SendKeys, not Escape+i) + "ping" + Enter
+	// No Escape sent to avoid Meta-i timing issue when ESC+'i' arrive within readline's 100ms timeout
+	for _, k := range fake.SentRawKeys {
+		if k.Keys == "Escape" {
+			t.Errorf("Escape must not be sent (causes Meta-i); 'i' goes via SendKeys instead, got: %v", fake.SentRawKeys)
+		}
+	}
+	// Total SentRawKeys: 2 (Enter for s1, Enter for s2)
+	if len(fake.SentRawKeys) != 2 {
+		t.Fatalf("expected 2 raw keys (Enter per session), got: %v", fake.SentRawKeys)
+	}
+	for _, k := range fake.SentRawKeys {
+		if k.Keys != "Enter" {
+			t.Errorf("expected only Enter raw keys, got: %v", fake.SentRawKeys)
+		}
 	}
 
 	sentBySession := map[string][]string{}

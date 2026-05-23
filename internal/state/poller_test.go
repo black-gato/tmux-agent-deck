@@ -25,6 +25,9 @@ func (s *stubTmux) CapturePaneOutput(name string) (string, error) {
 	}
 	return s.output, nil
 }
+func (s *stubTmux) CapturePaneView(session string, pane int) (string, error) {
+	return s.CapturePaneOutput(session)
+}
 func (s *stubTmux) SessionExists(name string) (bool, error) { return s.exists, nil }
 func (s *stubTmux) SessionActivity(name string) (time.Time, error) {
 	if s.activities != nil && !s.activities[name].IsZero() {
@@ -170,6 +173,9 @@ type countingStub struct{ callCount *int }
 
 func (s *countingStub) CapturePaneOutput(name string) (string, error) {
 	*s.callCount++
+	return "", nil
+}
+func (s *countingStub) CapturePaneView(session string, pane int) (string, error) {
 	return "", nil
 }
 func (s *countingStub) SessionExists(name string) (bool, error) { return true, nil }
@@ -603,10 +609,14 @@ func TestAutoEscalateSendsToConductorOnWaitingTransition(t *testing.T) {
 	p.SetSender(sender)
 	p.PollOnce()
 
-	if len(sender.calls) != 1 {
-		t.Fatalf("expected 1 SendKeys call, got %d", len(sender.calls))
+	// claude tool sessions get ESC+i prefix: calls[0]="i", calls[1]=message
+	if len(sender.calls) != 2 {
+		t.Fatalf("expected 2 SendKeys calls (vim prefix + message), got %d", len(sender.calls))
 	}
-	got := sender.calls[0]
+	if sender.calls[0].keys != "i" {
+		t.Errorf("expected vim prefix 'i', got %q", sender.calls[0].keys)
+	}
+	got := sender.calls[1]
 	if got.session != "tmux-conductor" {
 		t.Errorf("session: got %q want %q", got.session, "tmux-conductor")
 	}
@@ -628,11 +638,15 @@ func TestAutoEscalateSendsToConductorOnWaitingTransition(t *testing.T) {
 	if strings.Contains(got.keys, "-- INSERT --") {
 		t.Errorf("keys should omit terminal footer: %q", got.keys)
 	}
-	if len(sender.rawCalls) != 1 {
-		t.Fatalf("expected 1 SendRawKeys call, got %d", len(sender.rawCalls))
+	// rawCalls[0]=Escape, rawCalls[1]=Enter
+	if len(sender.rawCalls) != 2 {
+		t.Fatalf("expected 2 SendRawKeys calls (Escape + Enter), got %d", len(sender.rawCalls))
 	}
-	if sender.rawCalls[0].session != "tmux-conductor" || sender.rawCalls[0].keys != "Enter" {
-		t.Fatalf("submit call: got %#v", sender.rawCalls[0])
+	if sender.rawCalls[0].session != "tmux-conductor" || sender.rawCalls[0].keys != "Escape" {
+		t.Fatalf("expected Escape raw key: got %#v", sender.rawCalls[0])
+	}
+	if sender.rawCalls[1].session != "tmux-conductor" || sender.rawCalls[1].keys != "Enter" {
+		t.Fatalf("expected Enter raw key: got %#v", sender.rawCalls[1])
 	}
 }
 
@@ -662,8 +676,9 @@ func TestAutoEscalateFiresOncePerTransition(t *testing.T) {
 	p.PollOnce() // running → waiting, should fire
 	p.PollOnce() // still waiting, should NOT fire again
 
-	if len(sender.calls) != 1 {
-		t.Fatalf("expected 1 SendKeys call across 2 polls, got %d", len(sender.calls))
+	// one send = ESC+i prefix + message = 2 SendKeys; second poll must not add more
+	if len(sender.calls) != 2 {
+		t.Fatalf("expected 2 SendKeys calls across 2 polls (vim prefix + message, fired once), got %d", len(sender.calls))
 	}
 }
 
@@ -790,11 +805,12 @@ func TestReplyRoutingSendsToWorker(t *testing.T) {
 			replyCalls = append(replyCalls, c)
 		}
 	}
-	if len(replyCalls) == 0 {
-		t.Fatal("expected a SendKeys call to worker session")
+	// claude sessions get ESC+i prefix: replyCalls[0]="i", replyCalls[1]=body
+	if len(replyCalls) < 2 {
+		t.Fatalf("expected 2 SendKeys calls to worker (vim prefix + body), got %d", len(replyCalls))
 	}
-	if replyCalls[0].keys != "unblock: run go test" {
-		t.Errorf("reply body mismatch: got %q want %q", replyCalls[0].keys, "unblock: run go test")
+	if replyCalls[1].keys != "unblock: run go test" {
+		t.Errorf("reply body mismatch: got %q want %q", replyCalls[1].keys, "unblock: run go test")
 	}
 }
 
@@ -835,8 +851,9 @@ func TestReplyRoutingDuplicateNotResent(t *testing.T) {
 			replyCalls++
 		}
 	}
-	if replyCalls != 1 {
-		t.Errorf("expected 1 reply delivery, got %d", replyCalls)
+	// one reply delivery = ESC+i prefix + body = 2 SendKeys; must not be sent twice
+	if replyCalls != 2 {
+		t.Errorf("expected 2 SendKeys to worker (vim prefix + body, sent once), got %d", replyCalls)
 	}
 }
 

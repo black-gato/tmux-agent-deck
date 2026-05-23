@@ -363,9 +363,9 @@ func (m *Model) sendToPane(session string, paneIndex int, tool string) error {
 		needsVimPrefix = m.dialog.vimMode
 	}
 	if needsVimPrefix {
-		if err := m.tmuxC.SendRawKeys(session, paneIndex, "Escape"); err != nil {
-			return err
-		}
+		// Send 'i' alone (not Escape+'i') to enter INSERT mode from COMMAND mode.
+		// Sending Escape then 'i' as separate exec.Command calls arrives within
+		// readline's ~100ms escape timeout and is misread as Meta-i, a no-op.
 		if err := m.tmuxC.SendKeys(session, paneIndex, "i"); err != nil {
 			return err
 		}
@@ -380,5 +380,5 @@ func (m *Model) sendToPane(session string, paneIndex int, tool string) error {
 			return err
 		}
 	}
-	return nil
+	return m.tmuxC.SendRawKeys(session, paneIndex, "Enter")
 }

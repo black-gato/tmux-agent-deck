@@ -100,13 +100,17 @@ The message is sent with `SendKeys` and submitted with `SendRawKeys(..., "Enter"
 
 Reads `~/.claude/settings.json`, adds `tmux-agent-deck hook-handler` under each supported event, and writes back atomically (temp file + rename). Creates `settings.json` if it does not exist.
 
-For each event, the entry added is:
+Claude Code's settings format requires each event entry to be a **hook group object** — an object with a `"hooks"` array — not a bare command object. For each event, the entry added to the event array is:
 
 ```json
 {
-  "type": "command",
-  "command": "tmux-agent-deck hook-handler",
-  "async": true
+  "hooks": [
+    {
+      "type": "command",
+      "command": "tmux-agent-deck hook-handler",
+      "async": true
+    }
+  ]
 }
 ```
 
@@ -114,10 +118,16 @@ For each event, the entry added is:
 
 ```json
 {
-  "type": "command",
-  "command": "tmux-agent-deck hook-handler"
+  "hooks": [
+    {
+      "type": "command",
+      "command": "tmux-agent-deck hook-handler"
+    }
+  ]
 }
 ```
+
+A bare `{"type": "command", ...}` object placed directly in the event array is silently ignored by Claude Code. The `"hooks"` wrapper is required.
 
 ### Idempotency
 
