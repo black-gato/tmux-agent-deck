@@ -20,23 +20,23 @@ func TestInstallHooks_FreshFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var settings map[string]interface{}
+	var settings map[string]any
 	if err := json.Unmarshal(data, &settings); err != nil {
 		t.Fatalf("invalid JSON written: %v", err)
 	}
-	hooks, ok := settings["hooks"].(map[string]interface{})
+	hooks, ok := settings["hooks"].(map[string]any)
 	if !ok {
 		t.Fatal("expected hooks object")
 	}
 	for _, event := range []string{"Stop", "SessionStart", "SessionEnd", "UserPromptSubmit", "PermissionRequest", "PreCompact", "Notification"} {
-		arr, ok := hooks[event].([]interface{})
+		arr, ok := hooks[event].([]any)
 		if !ok || len(arr) == 0 {
 			t.Errorf("event %q: expected at least one hook entry", event)
 			continue
 		}
 		found := false
 		for _, entry := range arr {
-			m, ok := entry.(map[string]interface{})
+			m, ok := entry.(map[string]any)
 			if !ok {
 				continue
 			}
@@ -63,13 +63,13 @@ func TestInstallHooks_Idempotent(t *testing.T) {
 	}
 
 	data, _ := os.ReadFile(path)
-	var settings map[string]interface{}
+	var settings map[string]any
 	_ = json.Unmarshal(data, &settings)
-	hooks := settings["hooks"].(map[string]interface{})
-	stop := hooks["Stop"].([]interface{})
+	hooks := settings["hooks"].(map[string]any)
+	stop := hooks["Stop"].([]any)
 	count := 0
 	for _, entry := range stop {
-		m, ok := entry.(map[string]interface{})
+		m, ok := entry.(map[string]any)
 		if ok && m["command"] == "tmux-agent-deck hook-handler" {
 			count++
 		}
@@ -83,11 +83,11 @@ func TestInstallHooks_PreservesExistingEntries(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "settings.json")
 
-	existing := map[string]interface{}{
-		"env": map[string]interface{}{"EDITOR": "nvim"},
-		"hooks": map[string]interface{}{
-			"Stop": []interface{}{
-				map[string]interface{}{"type": "command", "command": "other-tool", "async": true},
+	existing := map[string]any{
+		"env": map[string]any{"EDITOR": "nvim"},
+		"hooks": map[string]any{
+			"Stop": []any{
+				map[string]any{"type": "command", "command": "other-tool", "async": true},
 			},
 		},
 	}
@@ -99,21 +99,21 @@ func TestInstallHooks_PreservesExistingEntries(t *testing.T) {
 	}
 
 	data, _ = os.ReadFile(path)
-	var settings map[string]interface{}
+	var settings map[string]any
 	_ = json.Unmarshal(data, &settings)
 
 	// env preserved
-	env, ok := settings["env"].(map[string]interface{})
+	env, ok := settings["env"].(map[string]any)
 	if !ok || env["EDITOR"] != "nvim" {
 		t.Error("expected env.EDITOR to be preserved")
 	}
 
 	// other-tool preserved in Stop
-	hooks := settings["hooks"].(map[string]interface{})
-	stop := hooks["Stop"].([]interface{})
+	hooks := settings["hooks"].(map[string]any)
+	stop := hooks["Stop"].([]any)
 	foundOther := false
 	for _, entry := range stop {
-		m, ok := entry.(map[string]interface{})
+		m, ok := entry.(map[string]any)
 		if ok && m["command"] == "other-tool" {
 			foundOther = true
 		}
@@ -135,9 +135,9 @@ func TestInstallHooks_Uninstall(t *testing.T) {
 	}
 
 	data, _ := os.ReadFile(path)
-	var settings map[string]interface{}
+	var settings map[string]any
 	_ = json.Unmarshal(data, &settings)
-	hooks, _ := settings["hooks"].(map[string]interface{})
+	hooks, _ := settings["hooks"].(map[string]any)
 	for _, event := range []string{"Stop", "SessionStart", "SessionEnd", "UserPromptSubmit", "PermissionRequest", "PreCompact", "Notification"} {
 		if _, exists := hooks[event]; exists {
 			t.Errorf("event %q: key still present in hooks after uninstall", event)
@@ -151,12 +151,12 @@ func TestInstallHooks_PermissionRequestIsSync(t *testing.T) {
 	_ = runInstallHooks(path, false, io.Discard)
 
 	data, _ := os.ReadFile(path)
-	var settings map[string]interface{}
+	var settings map[string]any
 	_ = json.Unmarshal(data, &settings)
-	hooks := settings["hooks"].(map[string]interface{})
-	arr := hooks["PermissionRequest"].([]interface{})
+	hooks := settings["hooks"].(map[string]any)
+	arr := hooks["PermissionRequest"].([]any)
 	for _, entry := range arr {
-		m, ok := entry.(map[string]interface{})
+		m, ok := entry.(map[string]any)
 		if !ok || m["command"] != "tmux-agent-deck hook-handler" {
 			continue
 		}

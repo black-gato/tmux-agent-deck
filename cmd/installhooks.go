@@ -77,22 +77,22 @@ func runInstallHooks(settingsPath string, uninstall bool, out io.Writer) error {
 	return writeSettings(settingsPath, settings)
 }
 
-func readSettings(path string) (map[string]interface{}, error) {
+func readSettings(path string) (map[string]any, error) {
 	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
-		return map[string]interface{}{}, nil
+		return map[string]any{}, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	var m map[string]interface{}
+	var m map[string]any
 	if err := json.Unmarshal(data, &m); err != nil {
 		return nil, fmt.Errorf("parse %s: %w", path, err)
 	}
 	return m, nil
 }
 
-func writeSettings(path string, settings map[string]interface{}) error {
+func writeSettings(path string, settings map[string]any) error {
 	data, err := json.MarshalIndent(settings, "", "    ")
 	if err != nil {
 		return err
@@ -107,23 +107,23 @@ func writeSettings(path string, settings map[string]interface{}) error {
 	return os.Rename(tmp, path)
 }
 
-func settingsHooks(settings map[string]interface{}) map[string]interface{} {
-	if h, ok := settings["hooks"].(map[string]interface{}); ok {
+func settingsHooks(settings map[string]any) map[string]any {
+	if h, ok := settings["hooks"].(map[string]any); ok {
 		return h
 	}
-	h := map[string]interface{}{}
+	h := map[string]any{}
 	settings["hooks"] = h
 	return h
 }
 
-func hooksForEvent(hooks map[string]interface{}, event string) []interface{} {
-	arr, _ := hooks[event].([]interface{})
+func hooksForEvent(hooks map[string]any, event string) []any {
+	arr, _ := hooks[event].([]any)
 	return arr
 }
 
-func hasOurEntry(arr []interface{}) bool {
+func hasOurEntry(arr []any) bool {
 	for _, entry := range arr {
-		m, ok := entry.(map[string]interface{})
+		m, ok := entry.(map[string]any)
 		if !ok {
 			continue
 		}
@@ -134,10 +134,10 @@ func hasOurEntry(arr []interface{}) bool {
 	return false
 }
 
-func removeOurEntry(arr []interface{}) []interface{} {
-	var out []interface{}
+func removeOurEntry(arr []any) []any {
+	var out []any
 	for _, entry := range arr {
-		m, ok := entry.(map[string]interface{})
+		m, ok := entry.(map[string]any)
 		if ok && m["command"] == deckHookCommand {
 			continue
 		}
@@ -146,8 +146,8 @@ func removeOurEntry(arr []interface{}) []interface{} {
 	return out
 }
 
-func buildEntry(async bool) map[string]interface{} {
-	entry := map[string]interface{}{
+func buildEntry(async bool) map[string]any {
+	entry := map[string]any{
 		"type":    "command",
 		"command": deckHookCommand,
 	}
