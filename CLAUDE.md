@@ -145,6 +145,7 @@ Full roadmap: [docs/superpowers/specs/2026-05-10-roadmap.md](docs/superpowers/sp
 | Hook Handler | Claude Code lifecycle hooks → real-time conductor updates; `install-hooks` to register | complete | [spec](docs/superpowers/specs/2026-05-23-hook-handler-design.md) | [plan](docs/superpowers/plans/2026-05-23-hook-handler.md) |
 | Vim Mode Auto-Detection | Per-pane INSERT/COMMAND detection for send-pane and broadcast; `i`-only prefix; Enter submission | complete | [spec](docs/superpowers/specs/2026-05-23-vim-mode-auto-detection-design.md) | — |
 | Session Worktree Options | New-session form spawns a `git worktree` per session; BRANCH field triggers worktree creation | complete | [spec](docs/superpowers/specs/2026-05-22-session-worktree-options-design.md) | [plan](docs/superpowers/plans/2026-05-23-session-worktree-options.md) |
+| Import Tmux Sessions | Adopt running tmux sessions not tracked by the deck (`I` in TUI; `import` CLI) | complete | [spec](docs/superpowers/specs/2026-05-23-import-tmux-sessions-design.md) | [plan](docs/superpowers/plans/2026-05-23-import-tmux-sessions.md) |
 
 ## Known Bugs
 
