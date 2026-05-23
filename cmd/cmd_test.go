@@ -2,9 +2,13 @@ package cmd_test
 
 import (
 	"bytes"
+	"context"
 	"testing"
 
 	"github.com/black-gato/tmux-agent-deck/cmd"
+	"github.com/black-gato/tmux-agent-deck/internal/db"
+	"github.com/black-gato/tmux-agent-deck/internal/testutil"
+	"github.com/black-gato/tmux-agent-deck/internal/tmux"
 )
 
 func TestAddAndList(t *testing.T) {
@@ -138,5 +142,93 @@ func TestListRejectsInvalidPollFlag(t *testing.T) {
 	}
 	if !bytes.Contains([]byte(err.Error()), []byte("invalid argument")) {
 		t.Fatalf("expected parse error, got %v", err)
+	}
+}
+
+func TestImportCommandList(t *testing.T) {
+	dbPath := t.TempDir() + "/test.db"
+	t.Setenv("AGENT_DECK_DB", dbPath)
+
+	conn, err := db.Open(dbPath)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	if err := db.CreateSession(conn, db.Session{
+		ID: "id-a", Title: "alpha-deck", GroupPath: "my-sessions",
+		TmuxSession: "alpha", Tool: "claude", Status: "running", CreatedAt: 1,
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	conn.Close()
+
+	fake := testutil.NewFakeTmuxClient()
+	fake.Sessions["alpha"] = ""
+	fake.Sessions["beta"] = ""
+
+	var out bytes.Buffer
+	if err := cmd.RunWithContextAndClient(context.Background(),
+		[]string{"import", "--list"}, &out, fake); err != nil {
+		t.Fatalf("import --list: %v", err)
+	}
+	got := out.String()
+	if !bytes.Contains([]byte(got), []byte("beta")) {
+		t.Errorf("expected 'beta' in output: %q", got)
+	}
+	if bytes.Contains([]byte(got), []byte("alpha")) {
+		t.Errorf("did not expect 'alpha' in output: %q", got)
+	}
+}
+
+func TestImportCommandSingle(t *testing.T) {
+	dbPath := t.TempDir() + "/test.db"
+	t.Setenv("AGENT_DECK_DB", dbPath)
+
+	fake := testutil.NewFakeTmuxClient()
+	fake.Sessions["gamma"] = ""
+	fake.SessionInfos["gamma"] = tmux.SessionInfo{Name: "gamma", CurrentPath: "/srv/code"}
+
+	var out bytes.Buffer
+	if err := cmd.RunWithContextAndClient(context.Background(),
+		[]string{"import", "gamma", "--title", "Gamma"}, &out, fake); err != nil {
+		t.Fatalf("import: %v", err)
+	}
+
+	conn, err := db.Open(dbPath)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer conn.Close()
+	s, err := db.GetSessionByTmuxName(conn, "gamma")
+	if err != nil {
+		t.Fatalf("lookup: %v", err)
+	}
+	if s.Title != "Gamma" || s.ProjectPath != "/srv/code" || s.Status != "unknown" {
+		t.Errorf("session row wrong: %+v", s)
+	}
+}
+
+func TestImportCommandAll(t *testing.T) {
+	dbPath := t.TempDir() + "/test.db"
+	t.Setenv("AGENT_DECK_DB", dbPath)
+
+	fake := testutil.NewFakeTmuxClient()
+	fake.Sessions["one"] = ""
+	fake.Sessions["two"] = ""
+
+	var out bytes.Buffer
+	if err := cmd.RunWithContextAndClient(context.Background(),
+		[]string{"import", "--all"}, &out, fake); err != nil {
+		t.Fatalf("import --all: %v", err)
+	}
+
+	conn, err := db.Open(dbPath)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer conn.Close()
+	for _, name := range []string{"one", "two"} {
+		if _, err := db.GetSessionByTmuxName(conn, name); err != nil {
+			t.Errorf("missing %s: %v", name, err)
+		}
 	}
 }
