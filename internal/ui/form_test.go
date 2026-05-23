@@ -276,6 +276,24 @@ func TestWorktreeUserEditPreventsAutoFill(t *testing.T) {
 	}
 }
 
+func TestFormErrEmptyOnInit(t *testing.T) {
+	m, _ := openModel(t)
+	m = sendKey(m, rune_('n'))
+	if m.FormErr() != "" {
+		t.Errorf("expected empty FormErr on init, got %q", m.FormErr())
+	}
+}
+
+func TestFormErrNotShownWhenEmpty(t *testing.T) {
+	m, _ := openModel(t)
+	m = sendKey(m, rune_('n'))
+	view := m.View()
+	// formErr is empty; the red error line should not appear
+	if strings.Contains(view, "could not resolve") {
+		t.Error("unexpected error text in view when formErr is empty")
+	}
+}
+
 func TestResolveDefaultBranch(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")

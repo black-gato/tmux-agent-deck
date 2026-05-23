@@ -51,6 +51,7 @@ var (
 	formHintStyle   = lipgloss.NewStyle().Faint(true)
 	formCandStyle   = lipgloss.NewStyle().Faint(true)
 	formCandHLStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#a6e3a1"))
+	formErrStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#f38ba8"))
 )
 
 func insertRune(f *formField, r rune) {
@@ -385,10 +386,14 @@ func (m *Model) renderForm() string {
 
 	for i, f := range m.form.fields {
 		isActive := i == m.form.focusField
+		branchEmpty := m.form.fields[2].value == ""
+		inertField := (i == 3 || i == 4) && branchEmpty
 
 		var labelStr string
-		if isActive {
+		if isActive && !inertField {
 			labelStr = formBarStyle.Render("▌ ") + formLabelActive.Render(f.label)
+		} else if isActive && inertField {
+			labelStr = formBarStyle.Render("▌ ") + formLabelDim.Render(f.label)
 		} else {
 			labelStr = "  " + formLabelDim.Render(f.label)
 		}
@@ -419,6 +424,9 @@ func (m *Model) renderForm() string {
 		sb.WriteString(label + valueStr + "\n")
 	}
 
+	if m.form.formErr != "" {
+		sb.WriteString(formErrStyle.Render("  "+m.form.formErr) + "\n")
+	}
 	sb.WriteString(formHintStyle.Render("  Tab · Space · Enter to create · Esc cancel"))
 	return sb.String()
 }
