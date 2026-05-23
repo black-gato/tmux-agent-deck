@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/black-gato/tmux-agent-deck/internal/tmux"
@@ -31,14 +32,7 @@ func ImportSession(conn *sql.DB, tc ImportInspector, req ImportRequest) (Session
 	if err != nil {
 		return Session{}, fmt.Errorf("list tmux sessions: %w", err)
 	}
-	found := false
-	for _, n := range names {
-		if n == req.TmuxName {
-			found = true
-			break
-		}
-	}
-	if !found {
+	if !slices.Contains(names, req.TmuxName) {
 		return Session{}, fmt.Errorf("tmux session %q not found", req.TmuxName)
 	}
 
