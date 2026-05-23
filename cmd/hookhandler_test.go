@@ -133,3 +133,25 @@ func TestHookHandler_NotificationTruncatesLongMessage(t *testing.T) {
 		t.Errorf("unexpected message: %q", fake.SentKeys[0].Keys)
 	}
 }
+
+func TestHookHandler_ConductorDoesNotSendToItself(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	g := db.Group{Path: "grp", Name: "grp", DefaultTool: "claude"}
+	_ = db.CreateGroup(conn, g)
+	conductor := db.Session{ID: "c1", Title: "conductor", GroupPath: "grp", TmuxSession: "tmux-cond", Tool: "claude", Status: "running", CreatedAt: 1}
+	_ = db.CreateSession(conn, conductor)
+	_ = db.SetGroupConductor(conn, "grp", "c1")
+
+	fake := testutil.NewFakeTmuxClient()
+	r := strings.NewReader(`{"hook_event_name":"Stop"}`)
+	err := runHookHandlerWith(r, conn, hookHandlerDeps{
+		resolveSession: func() (string, error) { return "tmux-cond", nil },
+		sender:         fake,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(fake.SentKeys) != 0 {
+		t.Errorf("conductor should not send to itself, got %d SendKeys calls", len(fake.SentKeys))
+	}
+}

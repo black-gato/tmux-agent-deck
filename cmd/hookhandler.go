@@ -70,6 +70,9 @@ func runHookHandlerWith(r io.Reader, conn *sql.DB, deps hookHandlerDeps) error {
 	if conductor.Status == tmux.StatusStopped || conductor.Status == tmux.StatusError {
 		return nil
 	}
+	if conductor.TmuxSession == tmuxName {
+		return nil
+	}
 
 	msg := hookMessage(session.Title, event)
 	if err := deps.sender.SendKeys(conductor.TmuxSession, 0, msg); err != nil {
