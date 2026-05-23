@@ -1,10 +1,9 @@
-package cmd_test
+package cmd
 
 import (
 	"strings"
 	"testing"
 
-	cmd "github.com/black-gato/tmux-agent-deck/cmd"
 	"github.com/black-gato/tmux-agent-deck/internal/db"
 	"github.com/black-gato/tmux-agent-deck/internal/testutil"
 )
@@ -21,9 +20,9 @@ func TestHookHandler_StopSendsMessage(t *testing.T) {
 
 	fake := testutil.NewFakeTmuxClient()
 	r := strings.NewReader(`{"hook_event_name":"Stop"}`)
-	err := cmd.RunHookHandlerWith(r, conn, cmd.HookHandlerDeps{
-		ResolveSession: func() (string, error) { return "tmux-work", nil },
-		Sender:         fake,
+	err := runHookHandlerWith(r, conn, hookHandlerDeps{
+		resolveSession: func() (string, error) { return "tmux-work", nil },
+		sender:         fake,
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -54,10 +53,12 @@ func TestHookHandler_PermissionRequestIncludesTool(t *testing.T) {
 
 	fake := testutil.NewFakeTmuxClient()
 	r := strings.NewReader(`{"hook_event_name":"PermissionRequest","tool_name":"Bash"}`)
-	_ = cmd.RunHookHandlerWith(r, conn, cmd.HookHandlerDeps{
-		ResolveSession: func() (string, error) { return "tmux-work", nil },
-		Sender:         fake,
-	})
+	if err := runHookHandlerWith(r, conn, hookHandlerDeps{
+		resolveSession: func() (string, error) { return "tmux-work", nil },
+		sender:         fake,
+	}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if len(fake.SentKeys) != 1 {
 		t.Fatalf("expected 1 SendKeys call, got %d", len(fake.SentKeys))
 	}
@@ -76,9 +77,9 @@ func TestHookHandler_NoConductorSilentExit(t *testing.T) {
 
 	fake := testutil.NewFakeTmuxClient()
 	r := strings.NewReader(`{"hook_event_name":"Stop"}`)
-	err := cmd.RunHookHandlerWith(r, conn, cmd.HookHandlerDeps{
-		ResolveSession: func() (string, error) { return "tmux-work", nil },
-		Sender:         fake,
+	err := runHookHandlerWith(r, conn, hookHandlerDeps{
+		resolveSession: func() (string, error) { return "tmux-work", nil },
+		sender:         fake,
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -92,9 +93,9 @@ func TestHookHandler_UnknownTmuxSessionSilentExit(t *testing.T) {
 	conn := testutil.OpenTestDB(t)
 	fake := testutil.NewFakeTmuxClient()
 	r := strings.NewReader(`{"hook_event_name":"Stop"}`)
-	err := cmd.RunHookHandlerWith(r, conn, cmd.HookHandlerDeps{
-		ResolveSession: func() (string, error) { return "not-tracked", nil },
-		Sender:         fake,
+	err := runHookHandlerWith(r, conn, hookHandlerDeps{
+		resolveSession: func() (string, error) { return "not-tracked", nil },
+		sender:         fake,
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -117,10 +118,12 @@ func TestHookHandler_NotificationTruncatesLongMessage(t *testing.T) {
 	longMsg := strings.Repeat("x", 80)
 	fake := testutil.NewFakeTmuxClient()
 	r := strings.NewReader(`{"hook_event_name":"Notification","message":"` + longMsg + `"}`)
-	_ = cmd.RunHookHandlerWith(r, conn, cmd.HookHandlerDeps{
-		ResolveSession: func() (string, error) { return "tmux-work", nil },
-		Sender:         fake,
-	})
+	if err := runHookHandlerWith(r, conn, hookHandlerDeps{
+		resolveSession: func() (string, error) { return "tmux-work", nil },
+		sender:         fake,
+	}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if len(fake.SentKeys) != 1 {
 		t.Fatalf("expected 1 SendKeys, got %d", len(fake.SentKeys))
 	}

@@ -18,10 +18,9 @@ type hookSender interface {
 	SendRawKeys(session string, pane int, keys string) error
 }
 
-// HookHandlerDeps holds injectable dependencies for hook-handler so tests can swap them.
-type HookHandlerDeps struct {
-	ResolveSession func() (string, error)
-	Sender         hookSender
+type hookHandlerDeps struct {
+	resolveSession func() (string, error)
+	sender         hookSender
 }
 
 var hookHandlerCmd = &cobra.Command{
@@ -33,9 +32,9 @@ var hookHandlerCmd = &cobra.Command{
 			return err
 		}
 		defer conn.Close()
-		return RunHookHandlerWith(os.Stdin, conn, HookHandlerDeps{
-			ResolveSession: resolveCurrentTmuxSession,
-			Sender:         tmux.NewClient(),
+		return runHookHandlerWith(os.Stdin, conn, hookHandlerDeps{
+			resolveSession: resolveCurrentTmuxSession,
+			sender:         tmux.NewClient(),
 		})
 	},
 }
@@ -48,14 +47,13 @@ func resolveCurrentTmuxSession() (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
-// RunHookHandlerWith is exported so tests in package cmd_test can call it directly.
-func RunHookHandlerWith(r io.Reader, conn *sql.DB, deps HookHandlerDeps) error {
+func runHookHandlerWith(r io.Reader, conn *sql.DB, deps hookHandlerDeps) error {
 	event, err := hook.ParseEvent(r)
 	if err != nil || event.EventName == "" {
 		return nil
 	}
 
-	tmuxName, err := deps.ResolveSession()
+	tmuxName, err := deps.resolveSession()
 	if err != nil || tmuxName == "" {
 		return nil
 	}
@@ -74,10 +72,10 @@ func RunHookHandlerWith(r io.Reader, conn *sql.DB, deps HookHandlerDeps) error {
 	}
 
 	msg := hookMessage(session.Title, event)
-	if err := deps.Sender.SendKeys(conductor.TmuxSession, 0, msg); err != nil {
+	if err := deps.sender.SendKeys(conductor.TmuxSession, 0, msg); err != nil {
 		return err
 	}
-	return deps.Sender.SendRawKeys(conductor.TmuxSession, 0, "Enter")
+	return deps.sender.SendRawKeys(conductor.TmuxSession, 0, "Enter")
 }
 
 func hookMessage(title string, event hook.HookEvent) string {
@@ -92,8 +90,9 @@ func hookMessage(title string, event hook.HookEvent) string {
 	case "Notification":
 		if event.Message != "" {
 			msg := event.Message
-			if len(msg) > 60 {
-				msg = msg[:60]
+			runes := []rune(msg)
+			if len(runes) > 60 {
+				msg = string(runes[:60])
 			}
 			return base + " | " + msg
 		}
