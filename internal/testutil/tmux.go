@@ -8,12 +8,14 @@ import (
 )
 
 // FakeTmuxClient implements tmux.ClientIface for tests.
-// Sessions maps session name → pane output.
+// Sessions maps session name → pane output (for CapturePaneOutput).
+// PaneViews maps session name → current visible pane content (for CapturePaneView).
 // Activities maps session name → last tmux activity timestamp.
 // Panes maps session name → pane list.
 // SentKeys records all SendKeys calls.
 type FakeTmuxClient struct {
 	Sessions        map[string]string
+	PaneViews       map[string]string
 	Activities      map[string]time.Time
 	Panes           map[string][]tmux.Pane
 	NewSessionCalls []NewSessionCall
@@ -41,6 +43,7 @@ type SentKeysCall struct {
 func NewFakeTmuxClient() *FakeTmuxClient {
 	return &FakeTmuxClient{
 		Sessions:   make(map[string]string),
+		PaneViews:  make(map[string]string),
 		Activities: make(map[string]time.Time),
 		Panes:      make(map[string][]tmux.Pane),
 	}
@@ -84,6 +87,14 @@ func (f *FakeTmuxClient) CapturePaneOutput(name string) (string, error) {
 		return "", fmt.Errorf("no session %q", name)
 	}
 	return out, nil
+}
+
+func (f *FakeTmuxClient) CapturePaneView(session string, paneIndex int) (string, error) {
+	content, ok := f.PaneViews[session]
+	if !ok {
+		return "", fmt.Errorf("no pane view for %q", session)
+	}
+	return content, nil
 }
 
 func (f *FakeTmuxClient) ListSessions() ([]string, error) {

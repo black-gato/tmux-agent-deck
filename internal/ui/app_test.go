@@ -2484,6 +2484,249 @@ func TestFullscreenExitsBroadcastDialog(t *testing.T) {
 	}
 }
 
+func TestSendPaneCtrlVTogglesVimMode(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	fake := testutil.NewFakeTmuxClient()
+	fake.Sessions["ad-s1"] = "> "
+	db.CreateSession(conn, db.Session{
+		ID: "s1", Title: "my-app", GroupPath: "my-sessions",
+		TmuxSession: "ad-s1", ProjectPath: "/p", Tool: "claude",
+		Status: "running", CreatedAt: 1000,
+	})
+	m := ui.NewModel(conn, fake, nil)
+	m.Reload()
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
+
+	if m.DialogVimMode() {
+		t.Fatal("vim mode should start false")
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyCtrlV})
+	if !m.DialogVimMode() {
+		t.Error("Ctrl+V should enable vim mode")
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyCtrlV})
+	if m.DialogVimMode() {
+		t.Error("second Ctrl+V should disable vim mode")
+	}
+}
+
+func TestSendPaneVimModeSendsEscapeIPrefixBeforeText(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	fake := testutil.NewFakeTmuxClient()
+	fake.Sessions["ad-s1"] = "> "
+	db.CreateSession(conn, db.Session{
+		ID: "s1", Title: "my-app", GroupPath: "my-sessions",
+		TmuxSession: "ad-s1", ProjectPath: "/p", Tool: "claude",
+		Status: "running", CreatedAt: 1000,
+	})
+	m := ui.NewModel(conn, fake, nil)
+	m.Reload()
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	m.Reload()
+
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
+	m.Update(tea.KeyMsg{Type: tea.KeyCtrlV}) // enable vim mode
+	for _, r := range "hello" {
+		m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	// Escape raw key must arrive before "i" literal, which must arrive before "hello"
+	if len(fake.SentRawKeys) < 1 || fake.SentRawKeys[0].Keys != "Escape" {
+		t.Fatalf("expected first raw key to be Escape, got: %v", fake.SentRawKeys)
+	}
+	if len(fake.SentKeys) < 2 {
+		t.Fatalf("expected at least 2 SendKeys calls (i + hello), got %d", len(fake.SentKeys))
+	}
+	if fake.SentKeys[0].Keys != "i" {
+		t.Errorf("first SendKeys should be 'i' to enter insert mode, got %q", fake.SentKeys[0].Keys)
+	}
+	if fake.SentKeys[1].Keys != "hello" {
+		t.Errorf("second SendKeys should be 'hello', got %q", fake.SentKeys[1].Keys)
+	}
+}
+
+func TestSendPaneWithoutVimModeDoesNotSendEscapePrefix(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	fake := testutil.NewFakeTmuxClient()
+	fake.Sessions["ad-s1"] = "> "
+	db.CreateSession(conn, db.Session{
+		ID: "s1", Title: "my-app", GroupPath: "my-sessions",
+		TmuxSession: "ad-s1", ProjectPath: "/p", Tool: "claude",
+		Status: "running", CreatedAt: 1000,
+	})
+	m := ui.NewModel(conn, fake, nil)
+	m.Reload()
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	m.Reload()
+
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
+	for _, r := range "hello" {
+		m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	if len(fake.SentRawKeys) != 0 {
+		t.Errorf("no raw keys expected without vim mode, got: %v", fake.SentRawKeys)
+	}
+	if len(fake.SentKeys) != 1 || fake.SentKeys[0].Keys != "hello" {
+		t.Errorf("expected exactly one SendKeys 'hello', got: %v", fake.SentKeys)
+	}
+}
+
+func TestBroadcastCtrlVTogglesVimMode(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	m := ui.NewModel(conn, nil, nil)
+	m.Reload()
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'b'}})
+
+	if m.DialogVimMode() {
+		t.Fatal("vim mode should start false in broadcast")
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyCtrlV})
+	if !m.DialogVimMode() {
+		t.Error("Ctrl+V should enable vim mode in broadcast")
+	}
+}
+
+func TestCtrlVIsNotSentToTargetPane(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	fake := testutil.NewFakeTmuxClient()
+	fake.Sessions["ad-s1"] = "> "
+	db.CreateSession(conn, db.Session{
+		ID: "s1", Title: "my-app", GroupPath: "my-sessions",
+		TmuxSession: "ad-s1", ProjectPath: "/p", Tool: "claude",
+		Status: "running", CreatedAt: 1000,
+	})
+	m := ui.NewModel(conn, fake, nil)
+	m.Reload()
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	m.Reload()
+
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
+	m.Update(tea.KeyMsg{Type: tea.KeyCtrlV}) // toggle vim mode — must NOT be queued as a send key
+	for _, r := range "hi" {
+		m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	for _, call := range fake.SentRawKeys {
+		if call.Keys == "C-v" || call.Keys == "\x16" {
+			t.Errorf("Ctrl+V must not be forwarded to target pane, got raw key: %q", call.Keys)
+		}
+	}
+	for _, call := range fake.SentKeys {
+		if strings.Contains(call.Keys, "\x16") {
+			t.Errorf("Ctrl+V byte must not appear in literal send, got: %q", call.Keys)
+		}
+	}
+}
+
+func TestSendPaneClaudeInInsertModeSkipsVimPrefix(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	fake := testutil.NewFakeTmuxClient()
+	fake.PaneViews["ad-s1"] = "❯ \n  -- INSERT -- ← for agents\n"
+	db.CreateSession(conn, db.Session{
+		ID: "s1", Title: "my-app", GroupPath: "my-sessions",
+		TmuxSession: "ad-s1", ProjectPath: "/p", Tool: "claude",
+		Status: "running", CreatedAt: 1000,
+	})
+	m := ui.NewModel(conn, fake, nil)
+	m.Reload()
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	m.Reload()
+
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
+	for _, r := range "hello" {
+		m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	if len(fake.SentRawKeys) != 0 {
+		t.Errorf("INSERT mode detected: no ESC prefix expected, got raw keys: %v", fake.SentRawKeys)
+	}
+	if len(fake.SentKeys) != 1 || fake.SentKeys[0].Keys != "hello" {
+		t.Errorf("expected exactly one SendKeys 'hello', got: %v", fake.SentKeys)
+	}
+}
+
+func TestSendPaneClaudeInNormalModeAddsVimPrefix(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	fake := testutil.NewFakeTmuxClient()
+	fake.PaneViews["ad-s1"] = "❯ \n"
+	db.CreateSession(conn, db.Session{
+		ID: "s1", Title: "my-app", GroupPath: "my-sessions",
+		TmuxSession: "ad-s1", ProjectPath: "/p", Tool: "claude",
+		Status: "running", CreatedAt: 1000,
+	})
+	m := ui.NewModel(conn, fake, nil)
+	m.Reload()
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	m.Reload()
+
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
+	for _, r := range "hello" {
+		m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	if len(fake.SentRawKeys) < 1 || fake.SentRawKeys[0].Keys != "Escape" {
+		t.Fatalf("normal mode detected: expected Escape prefix, got raw keys: %v", fake.SentRawKeys)
+	}
+	if len(fake.SentKeys) < 2 || fake.SentKeys[0].Keys != "i" || fake.SentKeys[1].Keys != "hello" {
+		t.Errorf("expected 'i' then 'hello', got: %v", fake.SentKeys)
+	}
+}
+
+func TestBroadcastAutoDetectsPerSession(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	fake := testutil.NewFakeTmuxClient()
+
+	db.CreateSession(conn, db.Session{
+		ID: "s1", Title: "in-insert", GroupPath: "my-sessions",
+		TmuxSession: "ad-s1", ProjectPath: "/p", Tool: "claude",
+		Status: "running", CreatedAt: 1001,
+	})
+	fake.Sessions["ad-s1"] = "❯ "
+	fake.PaneViews["ad-s1"] = "❯ \n  -- INSERT -- ← for agents\n"
+
+	db.CreateSession(conn, db.Session{
+		ID: "s2", Title: "in-normal", GroupPath: "my-sessions",
+		TmuxSession: "ad-s2", ProjectPath: "/p", Tool: "claude",
+		Status: "running", CreatedAt: 1000,
+	})
+	fake.Sessions["ad-s2"] = "❯ "
+	fake.PaneViews["ad-s2"] = "❯ \n"
+
+	m := ui.NewModel(conn, fake, nil)
+	m.Reload()
+
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'b'}})
+	for _, r := range "ping" {
+		m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	// s1 (INSERT mode): just "ping" — no ESC+i prefix
+	// s2 (normal mode): ESC + "i" + "ping"
+	// Total SentRawKeys: 1 (Escape for s2)
+	if len(fake.SentRawKeys) != 1 || fake.SentRawKeys[0].Keys != "Escape" {
+		t.Errorf("expected 1 Escape raw key for normal-mode session, got: %v", fake.SentRawKeys)
+	}
+
+	sentBySession := map[string][]string{}
+	for _, call := range fake.SentKeys {
+		sentBySession[call.Session] = append(sentBySession[call.Session], call.Keys)
+	}
+	if keys := sentBySession["ad-s1"]; len(keys) != 1 || keys[0] != "ping" {
+		t.Errorf("INSERT session ad-s1: expected [ping], got %v", keys)
+	}
+	if keys := sentBySession["ad-s2"]; len(keys) != 2 || keys[0] != "i" || keys[1] != "ping" {
+		t.Errorf("normal session ad-s2: expected [i ping], got %v", keys)
+	}
+}
+
 func TestNewSessionFormDownUpNavigatesFields(t *testing.T) {
 	conn := testutil.OpenTestDB(t)
 	m := ui.NewModel(conn, nil, nil)

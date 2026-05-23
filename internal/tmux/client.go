@@ -20,6 +20,7 @@ type ClientIface interface {
 	SessionExists(name string) (bool, error)
 	SessionActivity(name string) (time.Time, error)
 	CapturePaneOutput(name string) (string, error)
+	CapturePaneView(session string, paneIndex int) (string, error)
 	ListSessions() ([]string, error)
 	ListPanes(session string) ([]Pane, error)
 	SendKeys(session string, paneIndex int, keys string) error
@@ -121,6 +122,14 @@ func (c *Client) CapturePaneOutput(name string) (string, error) {
 	out, err := cmdOutput("tmux", "capture-pane", "-t", name, "-p", "-S", "-")
 	if err != nil {
 		return "", fmt.Errorf("capture-pane %q: %w", name, err)
+	}
+	return string(out), nil
+}
+
+func (c *Client) CapturePaneView(session string, paneIndex int) (string, error) {
+	out, err := cmdOutput("tmux", "capture-pane", "-t", paneTarget(session, paneIndex), "-p")
+	if err != nil {
+		return "", fmt.Errorf("capture-pane view %q: %w", session, err)
 	}
 	return string(out), nil
 }

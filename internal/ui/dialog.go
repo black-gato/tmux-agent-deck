@@ -37,6 +37,7 @@ type dialogState struct {
 	ctrlKeys    []string
 	scope       bool
 	scopeLabels [2]string
+	vimMode     bool
 }
 
 func newDialogState(prompt string) dialogState {
@@ -63,6 +64,10 @@ func interceptCtrl(msg tea.KeyMsg) (string, bool) {
 
 func (m *Model) updateDialog(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.mode == "send-pane" || m.mode == "broadcast" {
+		if msg.Type == tea.KeyCtrlV {
+			m.dialog.vimMode = !m.dialog.vimMode
+			return m, nil
+		}
 		if key, ok := interceptCtrl(msg); ok {
 			m.dialog.ctrlKeys = append(m.dialog.ctrlKeys, key)
 			return m, nil
@@ -106,6 +111,10 @@ func (m *Model) renderDialog() string {
 	if m.mode == "edit-notes" {
 		return "> " + m.dialog.value
 	}
+	vimTag := ""
+	if m.dialog.vimMode {
+		vimTag = "  [vim]"
+	}
 	if m.mode == "broadcast" {
 		label0 := m.dialog.scopeLabels[0]
 		label1 := m.dialog.scopeLabels[1]
@@ -116,9 +125,9 @@ func (m *Model) renderDialog() string {
 			label0 = dimStyle.Render(label0)
 			label1 = "→ " + label1
 		}
-		return fmt.Sprintf("Broadcast [%s / %s]:\n> %s", label0, label1, m.dialog.value)
+		return fmt.Sprintf("Broadcast [%s / %s]%s:\n> %s", label0, label1, vimTag, m.dialog.value)
 	}
-	return m.dialog.prompt + "\n> " + m.dialog.value
+	return m.dialog.prompt + vimTag + "\n> " + m.dialog.value
 }
 
 func completePath(input string) (string, []string) {
@@ -177,6 +186,14 @@ func longestCommonPrefix(values []string) string {
 		}
 	}
 	return prefix
+}
+
+func isInVimInsertMode(content string) bool {
+	return strings.Contains(content, "-- INSERT --")
+}
+
+func isClaudeTool(tool string) bool {
+	return tool == "claude" || tool == "claude-dangerous"
 }
 
 func (m *Model) commitDialog() {
@@ -262,7 +279,7 @@ func (m *Model) commitDialog() {
 				if s.TmuxSession == "" || s.Status == tmux.StatusStopped || s.Status == tmux.StatusError {
 					continue
 				}
-				if err := m.sendToPane(s.TmuxSession, 0); err != nil {
+				if err := m.sendToPane(s.TmuxSession, 0, s.Tool); err != nil {
 					m.err = err
 					return
 				}
@@ -275,7 +292,7 @@ func (m *Model) commitDialog() {
 			if s.TmuxSession == "" {
 				return
 			}
-			if err := m.sendToPane(s.TmuxSession, m.activePaneIdx); err != nil {
+			if err := m.sendToPane(s.TmuxSession, m.activePaneIdx, s.Tool); err != nil {
 				m.err = err
 			}
 		}
@@ -325,7 +342,7 @@ func (m *Model) commitDialog() {
 			if !inScope {
 				continue
 			}
-			if err := m.sendToPane(s.TmuxSession, 0); err != nil {
+			if err := m.sendToPane(s.TmuxSession, 0, s.Tool); err != nil {
 				m.err = err
 			}
 		}
@@ -334,7 +351,25 @@ func (m *Model) commitDialog() {
 	}
 }
 
-func (m *Model) sendToPane(session string, paneIndex int) error {
+func (m *Model) sendToPane(session string, paneIndex int, tool string) error {
+	needsVimPrefix := false
+	if isClaudeTool(tool) {
+		if out, err := m.tmuxC.CapturePaneView(session, paneIndex); err == nil {
+			needsVimPrefix = !isInVimInsertMode(out)
+		} else {
+			needsVimPrefix = m.dialog.vimMode
+		}
+	} else {
+		needsVimPrefix = m.dialog.vimMode
+	}
+	if needsVimPrefix {
+		if err := m.tmuxC.SendRawKeys(session, paneIndex, "Escape"); err != nil {
+			return err
+		}
+		if err := m.tmuxC.SendKeys(session, paneIndex, "i"); err != nil {
+			return err
+		}
+	}
 	if m.dialog.value != "" {
 		if err := m.tmuxC.SendKeys(session, paneIndex, m.dialog.value); err != nil {
 			return err
