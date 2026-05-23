@@ -76,6 +76,9 @@ func (m *Model) updateImportPicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) updateImportForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if msg.Type != tea.KeyEnter {
+		m.imp.formErr = ""
+	}
 	switch msg.Type {
 	case tea.KeyEsc:
 		m.mode = ""
