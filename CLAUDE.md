@@ -144,7 +144,7 @@ Full roadmap: [docs/superpowers/specs/2026-05-10-roadmap.md](docs/superpowers/sp
 | Conductor Enhancements | Reply-to-worker routing, heartbeat, `--init-conductor-docs` | complete | [spec](docs/superpowers/specs/2026-05-18-conductor-enhancements-plan.md) | [plan](docs/superpowers/plans/2026-05-18-conductor-enhancements.md) |
 | Hook Handler | Claude Code lifecycle hooks → real-time conductor updates; `install-hooks` to register | complete | [spec](docs/superpowers/specs/2026-05-23-hook-handler-design.md) | [plan](docs/superpowers/plans/2026-05-23-hook-handler.md) |
 | Vim Mode Auto-Detection | Per-pane INSERT/COMMAND detection for send-pane and broadcast; `i`-only prefix; Enter submission | complete | [spec](docs/superpowers/specs/2026-05-23-vim-mode-auto-detection-design.md) | — |
-| Session Worktree Options | New-session form spawns a `git worktree` per session; BRANCH field triggers worktree creation | planned | [spec](docs/superpowers/specs/2026-05-22-session-worktree-options-design.md) | — |
+| Session Worktree Options | New-session form spawns a `git worktree` per session; BRANCH field triggers worktree creation | complete | [spec](docs/superpowers/specs/2026-05-22-session-worktree-options-design.md) | [plan](docs/superpowers/plans/2026-05-23-session-worktree-options.md) |
 
 ## Known Bugs
 
