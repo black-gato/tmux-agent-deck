@@ -868,6 +868,42 @@ func TestSendPaneCtrlCharSentAsRawKey(t *testing.T) {
 	}
 }
 
+func TestSendPaneCtrlJSendsEnter(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	fake := testutil.NewFakeTmuxClient()
+	fake.Sessions["ad-s1"] = "> "
+
+	db.CreateSession(conn, db.Session{
+		ID: "s1", Title: "my-app", GroupPath: "my-sessions",
+		TmuxSession: "ad-s1", ProjectPath: "/p", Tool: "claude",
+		Status: "running", CreatedAt: 1000,
+	})
+	m := ui.NewModel(conn, fake, nil)
+	m.Reload()
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	m.Reload()
+
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}})
+	for _, r := range "hello" {
+		m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyCtrlJ})
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+
+	if len(fake.SentKeys) != 1 {
+		t.Fatalf("expected 1 SendKeys call, got %d", len(fake.SentKeys))
+	}
+	if fake.SentKeys[0].Keys != "hello" {
+		t.Errorf("keys: got %q want hello", fake.SentKeys[0].Keys)
+	}
+	if len(fake.SentRawKeys) != 1 {
+		t.Fatalf("expected 1 SendRawKeys call, got %d", len(fake.SentRawKeys))
+	}
+	if fake.SentRawKeys[0].Keys != "Enter" {
+		t.Errorf("raw keys: got %q want Enter", fake.SentRawKeys[0].Keys)
+	}
+}
+
 func TestSpaceOnSessionTogglesSelection(t *testing.T) {
 	conn := testutil.OpenTestDB(t)
 	db.CreateSession(conn, db.Session{
@@ -2445,6 +2481,43 @@ func TestFullscreenExitsBroadcastDialog(t *testing.T) {
 	view := m.View()
 	if !strings.Contains(view, "this group") && !strings.Contains(view, "Broadcast") && !strings.Contains(view, "broadcast") {
 		t.Errorf("expected broadcast scope selector in view, got:\n%s", view)
+	}
+}
+
+func TestNewSessionFormDownUpNavigatesFields(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	m := ui.NewModel(conn, nil, nil)
+	m.Reload()
+
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+	if m.Mode() != "new-session" {
+		t.Fatalf("expected new-session mode")
+	}
+
+	listCursorBefore := m.Cursor()
+
+	m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	if m.Cursor() != listCursorBefore {
+		t.Errorf("down in form should not change list cursor: before=%d after=%d", listCursorBefore, m.Cursor())
+	}
+	if m.FormFocusField() != 1 {
+		t.Errorf("down should advance focusField to 1, got %d", m.FormFocusField())
+	}
+
+	m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	if m.FormFocusField() != 2 {
+		t.Errorf("second down should advance focusField to 2, got %d", m.FormFocusField())
+	}
+
+	m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	if m.FormFocusField() != 1 {
+		t.Errorf("up should retreat focusField to 1, got %d", m.FormFocusField())
+	}
+
+	m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	if m.FormFocusField() != 0 {
+		t.Errorf("up should clamp at 0, got %d", m.FormFocusField())
 	}
 }
 

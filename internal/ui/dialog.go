@@ -55,6 +55,8 @@ func interceptCtrl(msg tea.KeyMsg) (string, bool) {
 		return "C-l", true
 	case tea.KeyCtrlU:
 		return "C-u", true
+	case tea.KeyCtrlJ:
+		return "Enter", true
 	}
 	return "", false
 }

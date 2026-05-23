@@ -149,15 +149,16 @@ func (m *Model) Reload() error {
 	return nil
 }
 
-func (m *Model) Items() []ListItem   { return m.items }
-func (m *Model) Cursor() int         { return m.cursor }
-func (m *Model) Mode() string        { return m.mode }
-func (m *Model) Panes() []tmux.Pane  { return m.panes }
-func (m *Model) Output() string      { return m.output }
-func (m *Model) ViewFull() bool      { return m.viewFull }
-func (m *Model) ActivePaneIdx() int  { return m.activePaneIdx }
-func (m *Model) OverdueWaiting() int { return m.overdueWaiting }
-func (m *Model) SelectedCount() int  { return len(m.selected) }
+func (m *Model) Items() []ListItem      { return m.items }
+func (m *Model) Cursor() int            { return m.cursor }
+func (m *Model) Mode() string           { return m.mode }
+func (m *Model) Panes() []tmux.Pane     { return m.panes }
+func (m *Model) Output() string         { return m.output }
+func (m *Model) ViewFull() bool         { return m.viewFull }
+func (m *Model) ActivePaneIdx() int     { return m.activePaneIdx }
+func (m *Model) OverdueWaiting() int    { return m.overdueWaiting }
+func (m *Model) SelectedCount() int     { return len(m.selected) }
+func (m *Model) FormFocusField() int    { return m.form.focusField }
 
 func (m *Model) Init() tea.Cmd {
 	if err := m.Reload(); err != nil {

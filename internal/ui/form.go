@@ -202,14 +202,14 @@ func (m *Model) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyUp:
-		if m.cursor > 0 {
-			m.cursor--
+		if m.form.focusField > 0 {
+			m.form.focusField--
 		}
 		return m, nil
 
 	case tea.KeyDown:
-		if m.cursor < len(m.items)-1 {
-			m.cursor++
+		if m.form.focusField < len(m.form.fields)-1 {
+			m.form.focusField++
 		}
 		return m, nil
 
