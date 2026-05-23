@@ -149,6 +149,21 @@ func TestToolSelectorCycles(t *testing.T) {
 	}
 }
 
+func TestFormHasEightFields(t *testing.T) {
+	m, _ := openModel(t)
+	m = sendKey(m, rune_('n'))
+	// Down 8 times: last valid index is 7, extra Down clamps there
+	for i := 0; i < 8; i++ {
+		m = sendKey(m, key(tea.KeyDown))
+	}
+	if m.Mode() != "new-session" {
+		t.Fatalf("expected new-session mode, got %q", m.Mode())
+	}
+	if m.FormFocusField() != 7 {
+		t.Errorf("expected focus at 7, got %d", m.FormFocusField())
+	}
+}
+
 func TestPathCompletionCycling(t *testing.T) {
 	tmp := t.TempDir()
 	for _, name := range []string{"alpha", "beta", "gamma"} {

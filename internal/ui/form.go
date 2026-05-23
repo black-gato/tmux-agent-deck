@@ -28,12 +28,14 @@ type formField struct {
 }
 
 type formState struct {
-	fields     []formField
-	focusField int
-	candidates []string
-	candIdx    int
-	candActive bool
-	candBase   string // dir prefix stable during cycling
+	fields             []formField
+	focusField         int
+	candidates         []string
+	candIdx            int
+	candActive         bool
+	candBase           string // dir prefix stable during cycling
+	formErr            string
+	worktreeUserEdited bool
 }
 
 var (
@@ -118,6 +120,9 @@ func (m *Model) initSessionForm() {
 		fields: []formField{
 			{label: "TITLE", kind: fieldText},
 			{label: "PATH", kind: fieldText, value: defaultPath, cursor: len([]rune(defaultPath))},
+			{label: "BRANCH", kind: fieldText},
+			{label: "BASE", kind: fieldText},
+			{label: "WORKTREE", kind: fieldText},
 			{label: "TOOL", kind: fieldSelect, options: toolOptions, optIdx: toolIdx},
 			{label: "FLAGS", kind: fieldText},
 			{label: "SCRIPT", kind: fieldText},
@@ -168,9 +173,9 @@ func (m *Model) commitForm() {
 	if path == "" {
 		path = "."
 	}
-	tool := m.form.fields[2].options[m.form.fields[2].optIdx]
-	flags := strings.TrimSpace(m.form.fields[3].value)
-	script := strings.TrimSpace(m.form.fields[4].value)
+	tool := m.form.fields[5].options[m.form.fields[5].optIdx]
+	flags := strings.TrimSpace(m.form.fields[6].value)
+	script := strings.TrimSpace(m.form.fields[7].value)
 
 	if err := db.CreateSession(m.conn, db.Session{
 		ID:            uuid.New().String(),

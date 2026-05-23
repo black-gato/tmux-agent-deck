@@ -159,6 +159,7 @@ func (m *Model) ActivePaneIdx() int     { return m.activePaneIdx }
 func (m *Model) OverdueWaiting() int    { return m.overdueWaiting }
 func (m *Model) SelectedCount() int     { return len(m.selected) }
 func (m *Model) FormFocusField() int    { return m.form.focusField }
+func (m *Model) FormErr() string        { return m.form.formErr }
 func (m *Model) DialogVimMode() bool    { return m.dialog.vimMode }
 
 func (m *Model) Init() tea.Cmd {
