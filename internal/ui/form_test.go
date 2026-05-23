@@ -294,6 +294,141 @@ func TestFormErrNotShownWhenEmpty(t *testing.T) {
 	}
 }
 
+func TestCommitWithoutWorktree(t *testing.T) {
+	m, conn := openModel(t)
+	m = sendKey(m, rune_('n'))
+	for _, r := range "plain-session" {
+		m = sendKey(m, rune_(r))
+	}
+	// Leave BRANCH blank — submit from TITLE field
+	m = sendKey(m, key(tea.KeyEnter))
+	if m.Mode() != "" {
+		t.Fatalf("expected mode cleared, got %q", m.Mode())
+	}
+	sessions, err := db.ListSessions(conn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sessions) != 1 {
+		t.Fatalf("expected 1 session, got %d", len(sessions))
+	}
+	if sessions[0].ProjectPath == "" {
+		t.Error("expected non-empty project_path")
+	}
+}
+
+func TestCommitWithWorktree(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	repo := t.TempDir()
+	run := func(args ...string) {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = repo
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %s", args, out)
+		}
+	}
+	run("init")
+	run("config", "user.email", "test@test.com")
+	run("config", "user.name", "Test")
+	run("commit", "--allow-empty", "-m", "init")
+
+	m, conn := openModel(t)
+	m = sendKey(m, rune_('n'))
+	for _, r := range "wt-session" {
+		m = sendKey(m, rune_(r))
+	}
+	// Navigate to PATH(1) and set it to repo
+	m = sendKey(m, key(tea.KeyDown))
+	for i := 0; i < 512; i++ {
+		m = sendKey(m, key(tea.KeyBackspace))
+	}
+	for _, r := range repo {
+		m = sendKey(m, rune_(r))
+	}
+	// Navigate to BRANCH(2)
+	m = sendKey(m, key(tea.KeyDown))
+	for _, r := range "feature/x" {
+		m = sendKey(m, rune_(r))
+	}
+	// Submit from BRANCH field
+	m = sendKey(m, key(tea.KeyEnter))
+	if m.Mode() != "" {
+		t.Fatalf("expected mode cleared after worktree commit, got %q (formErr: %q)", m.Mode(), m.FormErr())
+	}
+	sessions, err := db.ListSessions(conn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sessions) != 1 {
+		t.Fatalf("expected 1 session, got %d", len(sessions))
+	}
+	worktreeDir := sessions[0].ProjectPath
+	if _, statErr := os.Stat(worktreeDir); statErr != nil {
+		t.Fatalf("worktree dir %q should exist: %v", worktreeDir, statErr)
+	}
+	out, err := exec.Command("git", "-C", worktreeDir, "rev-parse", "--abbrev-ref", "HEAD").Output()
+	if err != nil {
+		t.Fatalf("git rev-parse: %v", err)
+	}
+	if branch := strings.TrimSpace(string(out)); branch != "feature/x" {
+		t.Errorf("expected branch feature/x, got %q", branch)
+	}
+}
+
+func TestCommitWorktreeErrorKeepsFormOpen(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	repo := t.TempDir()
+	run := func(args ...string) {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = repo
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %s", args, out)
+		}
+	}
+	run("init")
+	run("config", "user.email", "test@test.com")
+	run("config", "user.name", "Test")
+	run("commit", "--allow-empty", "-m", "init")
+	// Create the branch beforehand so `git worktree add -b <branch>` fails
+	run("branch", "existing-branch")
+
+	m, conn := openModel(t)
+	m = sendKey(m, rune_('n'))
+	for _, r := range "fail-session" {
+		m = sendKey(m, rune_(r))
+	}
+	m = sendKey(m, key(tea.KeyDown)) // → PATH
+	for i := 0; i < 512; i++ {
+		m = sendKey(m, key(tea.KeyBackspace))
+	}
+	for _, r := range repo {
+		m = sendKey(m, rune_(r))
+	}
+	m = sendKey(m, key(tea.KeyDown)) // → BRANCH
+	for _, r := range "existing-branch" {
+		m = sendKey(m, rune_(r))
+	}
+	m = sendKey(m, key(tea.KeyEnter))
+
+	if m.Mode() != "new-session" {
+		t.Fatalf("expected form to stay open, got mode %q", m.Mode())
+	}
+	if m.FormErr() == "" {
+		t.Error("expected FormErr to be set after git failure")
+	}
+	sessions, err := db.ListSessions(conn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sessions) != 0 {
+		t.Errorf("expected 0 sessions, got %d", len(sessions))
+	}
+}
+
 func TestResolveDefaultBranch(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")

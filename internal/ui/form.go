@@ -226,6 +226,7 @@ func (m *Model) updateWorktreeDefault() {
 }
 
 func (m *Model) commitForm() {
+	m.form.formErr = ""
 	title := strings.TrimSpace(m.form.fields[0].value)
 	if title == "" {
 		return
@@ -234,15 +235,40 @@ func (m *Model) commitForm() {
 	if path == "" {
 		path = "."
 	}
+	branch := strings.TrimSpace(m.form.fields[2].value)
 	tool := m.form.fields[5].options[m.form.fields[5].optIdx]
 	flags := strings.TrimSpace(m.form.fields[6].value)
 	script := strings.TrimSpace(m.form.fields[7].value)
+
+	var projectPath string
+	if branch == "" {
+		projectPath = expandPath(path)
+	} else {
+		base := strings.TrimSpace(m.form.fields[3].value)
+		if base == "" {
+			base = ResolveDefaultBranch(path)
+		}
+		if base == "" {
+			m.form.formErr = "could not resolve base branch; set BASE manually"
+			return
+		}
+		worktree := strings.TrimSpace(m.form.fields[4].value)
+		if worktree == "" {
+			worktree = DeriveWorktreePath(path, branch)
+		}
+		worktree = expandPath(worktree)
+		if err := runGitWorktreeAdd(path, branch, worktree, base); err != nil {
+			m.form.formErr = err.Error()
+			return
+		}
+		projectPath = worktree
+	}
 
 	if err := db.CreateSession(m.conn, db.Session{
 		ID:            uuid.New().String(),
 		Title:         title,
 		GroupPath:     m.currentGroupPath(),
-		ProjectPath:   expandPath(path),
+		ProjectPath:   projectPath,
 		Tool:          tool,
 		ToolFlags:     flags,
 		Status:        "stopped",
