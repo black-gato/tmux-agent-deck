@@ -139,12 +139,8 @@ func TestInstallHooks_Uninstall(t *testing.T) {
 	_ = json.Unmarshal(data, &settings)
 	hooks, _ := settings["hooks"].(map[string]interface{})
 	for _, event := range []string{"Stop", "SessionStart", "SessionEnd", "UserPromptSubmit", "PermissionRequest", "PreCompact", "Notification"} {
-		arr, _ := hooks[event].([]interface{})
-		for _, entry := range arr {
-			m, ok := entry.(map[string]interface{})
-			if ok && m["command"] == "tmux-agent-deck hook-handler" {
-				t.Errorf("event %q: hook-handler entry still present after uninstall", event)
-			}
+		if _, exists := hooks[event]; exists {
+			t.Errorf("event %q: key still present in hooks after uninstall", event)
 		}
 	}
 }

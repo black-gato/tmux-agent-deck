@@ -53,7 +53,11 @@ func runInstallHooks(settingsPath string, uninstall bool, out io.Writer) error {
 		if uninstall {
 			before := len(arr)
 			arr = removeOurEntry(arr)
-			hooks[ev.name] = arr
+			if len(arr) == 0 {
+				delete(hooks, ev.name)
+			} else {
+				hooks[ev.name] = arr
+			}
 			if len(arr) < before {
 				fmt.Fprintf(out, "%-20s removed\n", ev.name)
 			} else {
