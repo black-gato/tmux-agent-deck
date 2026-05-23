@@ -142,6 +142,7 @@ Full roadmap: [docs/superpowers/specs/2026-05-10-roadmap.md](docs/superpowers/sp
 | Auto-escalation | Poller-driven SendKeys to conductor when worker goes waiting | complete | [spec](docs/superpowers/specs/2026-05-16-auto-escalation-design.md) | [plan](docs/superpowers/plans/2026-05-16-auto-escalation.md) |
 | Tool Flags | Per-session agent flags (schema v6); `claude-dangerous` preset | partial (BUG-013) | [spec](docs/superpowers/specs/2026-05-17-tool-flags-design.md) | — |
 | Conductor Enhancements | Reply-to-worker routing, heartbeat, `--init-conductor-docs` | complete | [spec](docs/superpowers/specs/2026-05-18-conductor-enhancements-plan.md) | [plan](docs/superpowers/plans/2026-05-18-conductor-enhancements.md) |
+| Hook Handler | Claude Code lifecycle hooks → real-time conductor updates; `install-hooks` to register | complete | [spec](docs/superpowers/specs/2026-05-23-hook-handler-design.md) | [plan](docs/superpowers/plans/2026-05-23-hook-handler.md) |
 
 ## Known Bugs
 
