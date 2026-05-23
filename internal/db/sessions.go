@@ -328,6 +328,35 @@ func ListGroupChildSessions(conn *sql.DB, groupPath, conductorID string) ([]Sess
 	return scanSessions(rows)
 }
 
+// TmuxLister is the subset of tmux.ClientIface needed to enumerate live sessions.
+// Defined here to avoid an import cycle between db and tmux.
+type TmuxLister interface {
+	ListSessions() ([]string, error)
+}
+
+func ListUntrackedTmuxSessions(conn *sql.DB, tc TmuxLister) ([]string, error) {
+	names, err := tc.ListSessions()
+	if err != nil {
+		return nil, fmt.Errorf("list tmux sessions: %w", err)
+	}
+	out := make([]string, 0, len(names))
+	for _, name := range names {
+		if name == "" {
+			continue
+		}
+		_, err := GetSessionByTmuxName(conn, name)
+		if err == nil {
+			continue
+		}
+		if errors.Is(err, sql.ErrNoRows) {
+			out = append(out, name)
+			continue
+		}
+		return nil, err
+	}
+	return out, nil
+}
+
 func scanSessions(rows *sql.Rows) ([]Session, error) {
 	sessions := []Session{}
 	for rows.Next() {

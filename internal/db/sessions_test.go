@@ -1,6 +1,8 @@
 package db_test
 
 import (
+	"reflect"
+	"sort"
 	"testing"
 	"time"
 
@@ -522,5 +524,57 @@ func TestGetSessionByTmuxName(t *testing.T) {
 	_, err = dbpkg.GetSessionByTmuxName(conn, "not-a-session")
 	if err == nil {
 		t.Error("expected error for missing session, got nil")
+	}
+}
+
+func TestListUntrackedTmuxSessions(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+
+	tracked := dbpkg.Session{
+		ID:          "id-tracked",
+		Title:       "tracked",
+		GroupPath:   "my-sessions",
+		TmuxSession: "ad-tracked",
+		Tool:        "claude",
+		Status:      "running",
+		CreatedAt:   1,
+	}
+	if err := dbpkg.CreateSession(conn, tracked); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	fake := testutil.NewFakeTmuxClient()
+	fake.Sessions["ad-tracked"] = ""
+	fake.Sessions["scratch-foo"] = ""
+	fake.Sessions["scratch-bar"] = ""
+
+	got, err := dbpkg.ListUntrackedTmuxSessions(conn, fake)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	sort.Strings(got)
+	want := []string{"scratch-bar", "scratch-foo"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got %v want %v", got, want)
+	}
+}
+
+func TestListUntrackedTmuxSessionsIgnoresEmptyTmuxName(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	if err := dbpkg.CreateSession(conn, dbpkg.Session{
+		ID: "id-1", Title: "row", GroupPath: "my-sessions",
+		TmuxSession: "", Tool: "claude", Status: "stopped", CreatedAt: 1,
+	}); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	fake := testutil.NewFakeTmuxClient()
+	fake.Sessions["live-session"] = ""
+
+	got, err := dbpkg.ListUntrackedTmuxSessions(conn, fake)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(got) != 1 || got[0] != "live-session" {
+		t.Errorf("got %v want [live-session]", got)
 	}
 }
