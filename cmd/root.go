@@ -116,6 +116,10 @@ func resetRootOptions() {
 	_ = rootCmd.PersistentFlags().Set("headless", "false")
 	_ = rootCmd.PersistentFlags().Set("auto-escalate", "false")
 	_ = rootCmd.Flags().Set("help", "false")
+	_ = importCmd.Flags().Set("list", "false")
+	_ = importCmd.Flags().Set("all", "false")
+	_ = importCmd.Flags().Set("title", "")
+	_ = importCmd.Flags().Set("group", "my-sessions")
 }
 
 func runRoot(ctx context.Context, conn *sql.DB) error {

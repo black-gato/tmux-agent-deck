@@ -12,12 +12,14 @@ import (
 // PaneViews maps session name → current visible pane content (for CapturePaneView).
 // Activities maps session name → last tmux activity timestamp.
 // Panes maps session name → pane list.
+// SessionInfos maps session name → SessionInfo (for SessionInfo).
 // SentKeys records all SendKeys calls.
 type FakeTmuxClient struct {
 	Sessions        map[string]string
 	PaneViews       map[string]string
 	Activities      map[string]time.Time
 	Panes           map[string][]tmux.Pane
+	SessionInfos    map[string]tmux.SessionInfo
 	NewSessionCalls []NewSessionCall
 	AttachCalls     []string
 	KillCalls       []string
@@ -42,10 +44,11 @@ type SentKeysCall struct {
 
 func NewFakeTmuxClient() *FakeTmuxClient {
 	return &FakeTmuxClient{
-		Sessions:   make(map[string]string),
-		PaneViews:  make(map[string]string),
-		Activities: make(map[string]time.Time),
-		Panes:      make(map[string][]tmux.Pane),
+		Sessions:     make(map[string]string),
+		PaneViews:    make(map[string]string),
+		Activities:   make(map[string]time.Time),
+		Panes:        make(map[string][]tmux.Pane),
+		SessionInfos: make(map[string]tmux.SessionInfo),
 	}
 }
 
@@ -121,4 +124,14 @@ func (f *FakeTmuxClient) SendKeys(session string, paneIndex int, keys string) er
 func (f *FakeTmuxClient) SendRawKeys(session string, paneIndex int, keys string) error {
 	f.SentRawKeys = append(f.SentRawKeys, SentKeysCall{Session: session, PaneIndex: paneIndex, Keys: keys})
 	return nil
+}
+
+func (f *FakeTmuxClient) SessionInfo(name string) (tmux.SessionInfo, error) {
+	if info, ok := f.SessionInfos[name]; ok {
+		return info, nil
+	}
+	if _, exists := f.Sessions[name]; !exists {
+		return tmux.SessionInfo{}, fmt.Errorf("no session %q", name)
+	}
+	return tmux.SessionInfo{Name: name}, nil
 }

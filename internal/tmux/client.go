@@ -25,6 +25,7 @@ type ClientIface interface {
 	ListPanes(session string) ([]Pane, error)
 	SendKeys(session string, paneIndex int, keys string) error
 	SendRawKeys(session string, paneIndex int, keys string) error
+	SessionInfo(name string) (SessionInfo, error)
 }
 
 type Client struct{}
@@ -203,6 +204,37 @@ func parsePanesOutput(out string) []Pane {
 		return []Pane{}
 	}
 	return panes
+}
+
+type SessionInfo struct {
+	Name        string
+	CurrentPath string
+	Activity    time.Time
+}
+
+func ParseSessionInfoOutput(name, raw string) (SessionInfo, error) {
+	raw = strings.TrimSpace(raw)
+	parts := strings.SplitN(raw, "|", 2)
+	if len(parts) != 2 {
+		return SessionInfo{}, fmt.Errorf("session info %q: unexpected output %q", name, raw)
+	}
+	info := SessionInfo{Name: name, CurrentPath: parts[0]}
+	sec, err := strconv.ParseInt(strings.TrimSpace(parts[1]), 10, 64)
+	if err != nil {
+		return SessionInfo{}, fmt.Errorf("session info %q: parse activity: %w", name, err)
+	}
+	if sec > 0 {
+		info.Activity = time.Unix(sec, 0)
+	}
+	return info, nil
+}
+
+func (c *Client) SessionInfo(name string) (SessionInfo, error) {
+	out, err := cmdOutput("tmux", "display-message", "-p", "-t", name, "-F", "#{pane_current_path}|#{session_activity}")
+	if err != nil {
+		return SessionInfo{}, fmt.Errorf("session info %q: %w", name, err)
+	}
+	return ParseSessionInfoOutput(name, string(out))
 }
 
 // ParseBindingCommand extracts the command from a tmux list-keys output line.

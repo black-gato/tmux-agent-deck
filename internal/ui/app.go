@@ -36,6 +36,7 @@ type Model struct {
 	mode                 string // "", "new-session", "new-group", "rename", "move"
 	dialog               dialogState
 	form                 formState
+	imp                  importState
 	err                  error
 	PendingAttach        string // tmux session name to attach after TUI exits
 	PendingStartupScript string
@@ -160,6 +161,16 @@ func (m *Model) OverdueWaiting() int    { return m.overdueWaiting }
 func (m *Model) SelectedCount() int     { return len(m.selected) }
 func (m *Model) FormFocusField() int    { return m.form.focusField }
 func (m *Model) FormErr() string        { return m.form.formErr }
+func (m *Model) ImportCandidates() []string {
+	out := make([]string, 0, len(m.imp.candidates))
+	for _, c := range m.imp.candidates {
+		out = append(out, c.Name)
+	}
+	return out
+}
+func (m *Model) ImportFormTitle() string { return m.imp.title }
+func (m *Model) ImportFormGroup() string { return m.imp.group }
+func (m *Model) ImportFormErr() string   { return m.imp.formErr }
 func (m *Model) DialogVimMode() bool    { return m.dialog.vimMode }
 
 func (m *Model) Init() tea.Cmd {
@@ -186,6 +197,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.mode == "new-session" {
 			return m.updateForm(msg)
+		}
+		if m.mode == "import-picker" {
+			return m.updateImportPicker(msg)
+		}
+		if m.mode == "import-form" {
+			return m.updateImportForm(msg)
 		}
 		if m.mode != "" {
 			return m.updateDialog(msg)
@@ -246,6 +263,8 @@ func (m *Model) updateNavigation(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "new-session":
 		m.mode = "new-session"
 		m.initSessionForm()
+	case "import":
+		m.openImportPicker()
 	case "new-group":
 		m.mode = "new-group"
 		m.dialog = newDialogState("Group path (e.g. work/frontend):")
@@ -399,6 +418,13 @@ func (m *Model) View() string {
 
 	if m.mode == "help" {
 		return header + "\n" + strings.Repeat("─", m.width) + "\n" + m.renderHelpOverlay(m.width, contentH) + "\n" + footer
+	}
+
+	if m.mode == "import-picker" {
+		return header + "\n" + strings.Repeat("─", m.width) + "\n" + m.renderImportPicker() + "\n" + footer
+	}
+	if m.mode == "import-form" {
+		return header + "\n" + strings.Repeat("─", m.width) + "\n" + m.renderImportForm() + "\n" + footer
 	}
 
 	if m.viewFull {

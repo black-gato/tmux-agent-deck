@@ -23,6 +23,7 @@ var KeyBindings = []KeyBinding{
 	{Section: "Editing", Rune: 'd', Key: "d", Description: "Delete", Action: "delete"},
 	{Section: "Editing", Rune: 'e', Key: "e", Description: "Edit notes", Action: "edit-notes"},
 	{Section: "Editing", Rune: 't', Key: "t", Description: "Edit tags", Action: "edit-tags"},
+	{Section: "Editing", Rune: 'I', Key: "I", Description: "Import tmux session", Action: "import"},
 	{Section: "Workflow", Rune: 'x', Key: "x", Description: "Send keys", Action: "send-pane"},
 	{Section: "Workflow", Rune: 'f', Key: "f", Description: "Fork session", Action: "fork-session"},
 	{Section: "Workflow", Rune: 'b', Key: "b", Description: "Broadcast", Action: "broadcast"},
