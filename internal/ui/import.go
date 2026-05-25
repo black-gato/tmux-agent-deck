@@ -14,13 +14,15 @@ type importCandidate struct {
 }
 
 type importState struct {
-	candidates []importCandidate
-	cursor     int
-	selected   string
-	title      string
-	group      string
-	formErr    string
-	focus      int // 0 = title, 1 = group
+	candidates  []importCandidate
+	cursor      int
+	selected    string
+	title       string
+	titleCursor int
+	group       string
+	groupCursor int
+	formErr     string
+	focus       int // 0 = title, 1 = group
 }
 
 func (m *Model) openImportPicker() {
@@ -64,10 +66,12 @@ func (m *Model) updateImportPicker(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		c := m.imp.candidates[m.imp.cursor]
 		m.imp.selected = c.Name
 		m.imp.title = c.Name
+		m.imp.titleCursor = len([]rune(c.Name))
 		m.imp.group = m.currentGroupPath()
 		if m.imp.group == "" {
 			m.imp.group = defaultGroupPath
 		}
+		m.imp.groupCursor = len([]rune(m.imp.group))
 		m.imp.formErr = ""
 		m.imp.focus = 0
 		m.mode = "import-form"
@@ -85,19 +89,29 @@ func (m *Model) updateImportForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.imp = importState{}
 	case tea.KeyTab:
 		m.imp.focus = 1 - m.imp.focus
+	case tea.KeyLeft:
+		if m.imp.focus == 0 {
+			m.imp.titleCursor = moveCursorLeft(m.imp.titleCursor)
+		} else {
+			m.imp.groupCursor = moveCursorLeft(m.imp.groupCursor)
+		}
+	case tea.KeyRight:
+		if m.imp.focus == 0 {
+			m.imp.titleCursor = moveCursorRight(m.imp.title, m.imp.titleCursor)
+		} else {
+			m.imp.groupCursor = moveCursorRight(m.imp.group, m.imp.groupCursor)
+		}
 	case tea.KeyBackspace:
-		if m.imp.focus == 0 && len(m.imp.title) > 0 {
-			r := []rune(m.imp.title)
-			m.imp.title = string(r[:len(r)-1])
-		} else if m.imp.focus == 1 && len(m.imp.group) > 0 {
-			r := []rune(m.imp.group)
-			m.imp.group = string(r[:len(r)-1])
+		if m.imp.focus == 0 {
+			deleteRune(&m.imp.title, &m.imp.titleCursor)
+		} else {
+			deleteRune(&m.imp.group, &m.imp.groupCursor)
 		}
 	case tea.KeySpace:
 		if m.imp.focus == 0 {
-			m.imp.title += " "
+			insertRune(&m.imp.title, &m.imp.titleCursor, ' ')
 		} else {
-			m.imp.group += " "
+			insertRune(&m.imp.group, &m.imp.groupCursor, ' ')
 		}
 	case tea.KeyEnter:
 		if _, err := db.ImportSession(m.conn, m.tmuxC, db.ImportRequest{
@@ -115,11 +129,10 @@ func (m *Model) updateImportForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	default:
 		if len(msg.Runes) > 0 {
-			r := string(msg.Runes)
 			if m.imp.focus == 0 {
-				m.imp.title += r
+				insertRune(&m.imp.title, &m.imp.titleCursor, msg.Runes[0])
 			} else {
-				m.imp.group += r
+				insertRune(&m.imp.group, &m.imp.groupCursor, msg.Runes[0])
 			}
 		}
 	}
@@ -164,10 +177,10 @@ func (m *Model) renderImportForm() string {
 	titleLine := "  TITLE  " + m.imp.title
 	groupLine := "  GROUP  " + m.imp.group
 	if m.imp.focus == 0 {
-		titleLine = formLabelActive.Render("> TITLE  ") + m.imp.title + formCursorStyle.Render(" ")
+		titleLine = formLabelActive.Render("> TITLE  ") + renderWithCursor(m.imp.title, m.imp.titleCursor)
 	}
 	if m.imp.focus == 1 {
-		groupLine = formLabelActive.Render("> GROUP  ") + m.imp.group + formCursorStyle.Render(" ")
+		groupLine = formLabelActive.Render("> GROUP  ") + renderWithCursor(m.imp.group, m.imp.groupCursor)
 	}
 	b.WriteString(titleLine + "\n")
 	b.WriteString(groupLine + "\n\n")
