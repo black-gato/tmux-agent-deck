@@ -184,6 +184,7 @@ func (m *Model) ImportFormTitle() string { return m.imp.title }
 func (m *Model) ImportFormGroup() string { return m.imp.group }
 func (m *Model) ImportFormErr() string   { return m.imp.formErr }
 func (m *Model) DialogVimMode() bool    { return m.dialog.vimMode }
+func (m *Model) DialogValue() string    { return m.dialog.value }
 
 func (m *Model) Init() tea.Cmd {
 	if err := m.Reload(); err != nil {
@@ -319,6 +320,7 @@ func (m *Model) updateNavigation(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.cursor < len(m.items) && m.items[m.cursor].Kind == "session" {
 			m.mode = "edit-notes"
 			m.dialog = dialogState{prompt: "", value: m.items[m.cursor].Session.Notes}
+			m.dialog.cursor = len([]rune(m.dialog.value))
 		}
 	case "set-conductor":
 		if m.cursor < len(m.items) && m.items[m.cursor].Kind == "session" {
@@ -350,6 +352,7 @@ func (m *Model) updateNavigation(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.mode = "edit-tags"
 			m.dialog = newDialogState("Tags:")
 			m.dialog.value = m.items[m.cursor].Session.Tags
+			m.dialog.cursor = len([]rune(m.dialog.value))
 		}
 	case "cycle-pane":
 		if len(m.panes) > 0 {
@@ -392,6 +395,7 @@ func (m *Model) updateNavigation(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.mode = "filter"
 		m.dialog = newDialogState("Filter:")
 		m.dialog.value = m.searchQuery
+		m.dialog.cursor = len([]rune(m.dialog.value))
 	}
 	if m.viewFull && m.mode != "" {
 		m.viewFull = false
@@ -643,7 +647,7 @@ func (m *Model) RenderDetailPanel(w, h int) string {
 		lines = append(lines, " "+string(noteRunes[start:end]))
 	}
 	if m.mode == "edit-notes" {
-		lines = append(lines, " > "+m.dialog.value)
+		lines = append(lines, " > "+renderWithCursor(m.dialog.value, m.dialog.cursor))
 	} else {
 		lines = append(lines, " e edit")
 	}

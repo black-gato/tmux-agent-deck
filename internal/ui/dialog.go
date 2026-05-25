@@ -34,6 +34,7 @@ func expandPath(p string) string {
 type dialogState struct {
 	prompt      string
 	value       string
+	cursor      int
 	ctrlKeys    []string
 	scope       bool
 	scopeLabels [2]string
@@ -95,13 +96,15 @@ func (m *Model) updateDialog(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			m.navigateToGroup = ""
 		}
+	case tea.KeyLeft:
+		m.dialog.cursor = moveCursorLeft(m.dialog.cursor)
+	case tea.KeyRight:
+		m.dialog.cursor = moveCursorRight(m.dialog.value, m.dialog.cursor)
 	case tea.KeyBackspace:
-		if len(m.dialog.value) > 0 {
-			m.dialog.value = m.dialog.value[:len(m.dialog.value)-1]
-		}
+		deleteRune(&m.dialog.value, &m.dialog.cursor)
 	default:
 		if len(msg.Runes) > 0 {
-			m.dialog.value += string(msg.Runes)
+			insertRune(&m.dialog.value, &m.dialog.cursor, msg.Runes[0])
 		}
 	}
 	return m, nil
@@ -109,7 +112,7 @@ func (m *Model) updateDialog(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m *Model) renderDialog() string {
 	if m.mode == "edit-notes" {
-		return "> " + m.dialog.value
+		return "> " + renderWithCursor(m.dialog.value, m.dialog.cursor)
 	}
 	vimTag := ""
 	if m.dialog.vimMode {
@@ -125,9 +128,9 @@ func (m *Model) renderDialog() string {
 			label0 = dimStyle.Render(label0)
 			label1 = "→ " + label1
 		}
-		return fmt.Sprintf("Broadcast [%s / %s]%s:\n> %s", label0, label1, vimTag, m.dialog.value)
+		return fmt.Sprintf("Broadcast [%s / %s]%s:\n> %s", label0, label1, vimTag, renderWithCursor(m.dialog.value, m.dialog.cursor))
 	}
-	return m.dialog.prompt + vimTag + "\n> " + m.dialog.value
+	return m.dialog.prompt + vimTag + "\n> " + renderWithCursor(m.dialog.value, m.dialog.cursor)
 }
 
 func completePath(input string) (string, []string) {

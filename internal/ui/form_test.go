@@ -432,6 +432,50 @@ func TestCommitWorktreeErrorKeepsFormOpen(t *testing.T) {
 	}
 }
 
+func TestDialogCursorLeftRight(t *testing.T) {
+	m, _ := openModel(t)
+	m = sendKey(m, rune_('/'))
+	// type "abc", move left twice, insert 'x' → "axbc"
+	m = sendKey(m, rune_('a'))
+	m = sendKey(m, rune_('b'))
+	m = sendKey(m, rune_('c'))
+	m = sendKey(m, key(tea.KeyLeft))
+	m = sendKey(m, key(tea.KeyLeft))
+	m = sendKey(m, rune_('x'))
+	if m.DialogValue() != "axbc" {
+		t.Errorf("got %q want %q", m.DialogValue(), "axbc")
+	}
+}
+
+func TestDialogCursorBackspaceAtMiddle(t *testing.T) {
+	m, _ := openModel(t)
+	m = sendKey(m, rune_('/'))
+	// type "abc", move left, backspace → removes 'b', leaves "ac"
+	m = sendKey(m, rune_('a'))
+	m = sendKey(m, rune_('b'))
+	m = sendKey(m, rune_('c'))
+	m = sendKey(m, key(tea.KeyLeft))
+	m = sendKey(m, key(tea.KeyBackspace))
+	if m.DialogValue() != "ac" {
+		t.Errorf("got %q want %q", m.DialogValue(), "ac")
+	}
+}
+
+func TestDialogCursorClampsAtBoundaries(t *testing.T) {
+	m, _ := openModel(t)
+	m = sendKey(m, rune_('/'))
+	m = sendKey(m, rune_('a'))
+	m = sendKey(m, key(tea.KeyLeft))
+	m = sendKey(m, key(tea.KeyLeft))
+	m = sendKey(m, key(tea.KeyLeft))
+	m = sendKey(m, key(tea.KeyRight))
+	m = sendKey(m, key(tea.KeyRight))
+	m = sendKey(m, key(tea.KeyRight))
+	if m.DialogValue() != "a" {
+		t.Errorf("value changed unexpectedly: %q", m.DialogValue())
+	}
+}
+
 func TestResolveDefaultBranch(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
