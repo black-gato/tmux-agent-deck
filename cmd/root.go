@@ -150,9 +150,12 @@ func launchTUI(conn *sql.DB, tc tmux.ClientIface) error {
 	}
 	poller.Start()
 	defer poller.Stop()
+	var restoreSessionID string
 	for {
 		m := ui.NewModel(conn, tc, poller)
 		m.InitConductorDocs = initConductorDocs
+		m.SetRestoreSessionID(restoreSessionID)
+		restoreSessionID = ""
 		p := tea.NewProgram(m, tea.WithAltScreen())
 		finalModel, err := p.Run()
 		if err != nil {
@@ -162,6 +165,7 @@ func launchTUI(conn *sql.DB, tc tmux.ClientIface) error {
 		if !ok || fm.PendingAttach == "" {
 			return nil
 		}
+		restoreSessionID = fm.PendingAttachSessionID
 		exists, _ := tc.SessionExists(fm.PendingAttach)
 		if !exists {
 			return fmt.Errorf("tmux session %q exited before attach", fm.PendingAttach)

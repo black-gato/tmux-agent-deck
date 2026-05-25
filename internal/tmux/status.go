@@ -87,11 +87,21 @@ func recentNonEmptyLines(s string, n int) []string {
 }
 
 func isAgentPromptLine(line string) bool {
-	return line == ">" || line == "❯"
+	return line == ">" || strings.HasPrefix(line, "❯")
 }
 
 func isClaudeTool(tool string) bool {
 	return tool == "claude" || strings.HasPrefix(tool, "claude-")
+}
+
+// isClaudeRunningLine detects Claude Code's active-thinking indicators.
+// ✢ is Claude's in-progress spinner; · ↓ and "thinking with" appear in the
+// token-stream status line while Claude is actively generating a response.
+// ✻ is intentionally excluded — it marks a completed step, not an active one.
+func isClaudeRunningLine(line string) bool {
+	return strings.ContainsRune(line, '✢') ||
+		strings.Contains(line, "· ↓") ||
+		strings.Contains(line, "thinking with")
 }
 
 func DetectStatus(output string, lastChange, now time.Time, tool string) Status {
@@ -101,8 +111,23 @@ func DetectStatus(output string, lastChange, now time.Time, tool string) Status 
 
 	switch {
 	case isClaudeTool(tool):
-		for _, line := range recentNonEmptyLines(trimmed, 8) {
+		recent := recentNonEmptyLines(trimmed, 8)
+		// Claude Code always renders the ❯ input box at the bottom, even while
+		// running. Check for active-thinking indicators first so the chrome ❯
+		// doesn't cause a false waiting result. Skip this check when pane output
+		// is stale (>30s silent) — a frozen ✢ line should not pin running.
+		if now.Sub(lastChange) <= 30*time.Second {
+			for _, line := range recent {
+				if isClaudeRunningLine(line) {
+					return StatusRunning
+				}
+			}
+		}
+		for _, line := range recent {
 			if isAgentPromptLine(line) {
+				if now.Sub(lastChange) >= 60*time.Second {
+					return StatusIdle
+				}
 				return StatusWaiting
 			}
 		}

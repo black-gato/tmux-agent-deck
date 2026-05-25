@@ -168,18 +168,11 @@ func ListWaitingGroupChildren(conn *sql.DB, groupPath string) ([]Session, error)
 }
 
 func UpdateSessionStatus(conn *sql.DB, id, status string) error {
-	res, err := conn.Exec(
+	_, err := conn.Exec(
 		`UPDATE sessions SET status = ?, last_active = strftime('%s','now') WHERE id = ?`,
 		status, id,
 	)
-	if err != nil {
-		return err
-	}
-	n, _ := res.RowsAffected()
-	if n == 0 {
-		return fmt.Errorf("update status %q: %w", id, sql.ErrNoRows)
-	}
-	return nil
+	return err
 }
 
 func UpdateSessionTmuxName(conn *sql.DB, id, tmuxSession string) error {

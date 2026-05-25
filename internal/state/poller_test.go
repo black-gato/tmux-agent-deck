@@ -528,8 +528,8 @@ func TestPollerKeepsOldPromptWaitingOnFirstPoll(t *testing.T) {
 	p.PollOnce()
 
 	s, _ := db.GetSession(conn, "s1")
-	if s.Status != "waiting" {
-		t.Fatalf("status: got %q want waiting", s.Status)
+	if s.Status != "idle" {
+		t.Fatalf("status: got %q want idle", s.Status)
 	}
 }
 

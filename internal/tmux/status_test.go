@@ -53,7 +53,7 @@ func TestDetectStatusWaiting(t *testing.T) {
 
 func TestDetectStatusClaudePromptAboveStatusFooter(t *testing.T) {
 	now := time.Now()
-	lastChange := now.Add(-2 * time.Minute)
+	lastChange := now.Add(-10 * time.Second)
 	output := strings.Join([]string{
 		"※ recap: Ready to resume work.",
 		"────────────────────────",
@@ -73,7 +73,7 @@ func TestDetectStatusClaudePromptAboveStatusFooter(t *testing.T) {
 
 func TestDetectStatusClaudePromptWithANSI(t *testing.T) {
 	now := time.Now()
-	lastChange := now.Add(-2 * time.Minute)
+	lastChange := now.Add(-10 * time.Second)
 	output := strings.Join([]string{
 		"※ recap: Ready to resume work.",
 		"\x1b[32m❯\x1b[0m",
@@ -89,7 +89,7 @@ func TestDetectStatusClaudePromptWithANSI(t *testing.T) {
 
 func TestDetectStatusClaudePresetPromptAboveStatusFooter(t *testing.T) {
 	now := time.Now()
-	lastChange := now.Add(-2 * time.Minute)
+	lastChange := now.Add(-10 * time.Second)
 	output := strings.Join([]string{
 		"⏺ Hey! What are you working on?",
 		"✻ Brewed for 25s",
@@ -129,6 +129,100 @@ func TestDetectStatusRunning(t *testing.T) {
 		if status != tmux.StatusRunning {
 			t.Errorf("output %q: got %q want running", output, status)
 		}
+	}
+}
+
+func TestDetectStatusClaudeRunningWithActiveThinker(t *testing.T) {
+	// ✢ (active spinner) + bare ❯ input box — real pane layout while Claude works.
+	// ✢ must take precedence over the always-visible ❯ chrome.
+	now := time.Now()
+	output := strings.Join([]string{
+		"❯ What needs to be created to make this a possibility",
+		"✢ Canoodling… (5s · ↓ 166 tokens · thinking with medium effort)",
+		"────────────────────────",
+		"❯",
+		"────────────────────────",
+		"  anthonymirville@Anthonys-MacBook-Air Projects [Opus 4.7] ctx:3%",
+		"  -- INSERT -- ⏵⏵ bypass permissions on (shift+tab to cycle)",
+	}, "\n")
+
+	status := tmux.DetectStatus(output, now, now, "claude")
+	if status != tmux.StatusRunning {
+		t.Errorf("got %q want running — ✢ should take precedence over ❯ chrome", status)
+	}
+}
+
+func TestDetectStatusClaudeRunningWithTokenStream(t *testing.T) {
+	// Token-stream status line is another running indicator when ✢ is not present.
+	now := time.Now()
+	output := strings.Join([]string{
+		"· ↓ 166 tokens · thinking with medium effort",
+		"────────────────────────",
+		"❯",
+		"────────────────────────",
+		"  -- INSERT -- ⏵⏵ bypass permissions on",
+	}, "\n")
+
+	status := tmux.DetectStatus(output, now, now, "claude")
+	if status != tmux.StatusRunning {
+		t.Errorf("got %q want running", status)
+	}
+}
+
+func TestDetectStatusClaudeWaitingWithDisplayTextInInputBox(t *testing.T) {
+	// Claude Code shows display text in the input box (not user input, not agent output).
+	// ❯ followed by any text must still be detected as waiting.
+	now := time.Now()
+	lastChange := now.Add(-10 * time.Second)
+	output := strings.Join([]string{
+		"✻ Cogitated for 1s",
+		"────────────────────────────────────────────────────────────────────────────",
+		"❯ Stop the escalation recaps for this worker",
+		"────────────────────────────────────────────────────────────────────────────",
+		"  anthonymirville@Anthonys-MacBook-Air tmux-agent-deck (main) [Opus 4.7] ctx:3%",
+		"  -- INSERT -- ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents",
+	}, "\n")
+
+	status := tmux.DetectStatus(output, lastChange, now, "claude")
+	if status != tmux.StatusWaiting {
+		t.Errorf("got %q want waiting — ❯ with display text should be detected as waiting", status)
+	}
+}
+
+func TestDetectStatusClaudeIdleAfterSixtySecondsWaiting(t *testing.T) {
+	// A session at the ❯ prompt with no pane activity for 60s+ is idle.
+	now := time.Now()
+	lastChange := now.Add(-61 * time.Second)
+	output := strings.Join([]string{
+		"✻ Cogitated for 1s",
+		"────────────────────────",
+		"❯ Stop the escalation recaps for this worker",
+		"────────────────────────",
+		"  anthonymirville@Anthonys-MacBook-Air tmux-agent-deck (main) [Opus 4.7] ctx:3%",
+		"  -- INSERT -- ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents",
+	}, "\n")
+
+	status := tmux.DetectStatus(output, lastChange, now, "claude")
+	if status != tmux.StatusIdle {
+		t.Errorf("got %q want idle — ❯ prompt silent for 60s+ should be idle", status)
+	}
+}
+
+func TestDetectStatusClaudeStaleActiveThinkerIsWaiting(t *testing.T) {
+	// A frozen ✢ line (pane silent >30s) with bare ❯ should be waiting, not running.
+	now := time.Now()
+	lastChange := now.Add(-31 * time.Second)
+	output := strings.Join([]string{
+		"✢ Canoodling… (5s · ↓ 166 tokens · thinking with medium effort)",
+		"────────────────────────",
+		"❯",
+		"────────────────────────",
+		"  -- INSERT -- ⏵⏵ bypass permissions on",
+	}, "\n")
+
+	status := tmux.DetectStatus(output, lastChange, now, "claude")
+	if status != tmux.StatusWaiting {
+		t.Errorf("got %q want waiting — stale ✢ must not pin running when ❯ is present", status)
 	}
 }
 

@@ -27,7 +27,7 @@ var KeyBindings = []KeyBinding{
 	{Section: "Workflow", Rune: 'x', Key: "x", Description: "Send keys", Action: "send-pane"},
 	{Section: "Workflow", Rune: 'f', Key: "f", Description: "Fork session", Action: "fork-session"},
 	{Section: "Workflow", Rune: 'b', Key: "b", Description: "Broadcast", Action: "broadcast"},
-	{Section: "Workflow", Rune: 'c', Key: "c", Description: "Set conductor", Action: "set-conductor"},
+	{Section: "Workflow", Rune: 'c', Key: "c", Description: "Toggle conductor", Action: "set-conductor"},
 	{Section: "Workflow", Rune: 'C', Key: "C", Description: "Escalate to conductor", Action: "escalate-conductor"},
 	{Section: "View", Rune: 'v', Key: "v", Description: "Toggle full output", Action: "toggle-full"},
 	{Section: "View", Rune: 'a', Key: "a", Description: "Archive", Action: "archive"},

@@ -38,8 +38,9 @@ type Model struct {
 	form                 formState
 	imp                  importState
 	err                  error
-	PendingAttach        string // tmux session name to attach after TUI exits
-	PendingStartupScript string
+	PendingAttach          string // tmux session name to attach after TUI exits
+	PendingAttachSessionID string // deck session ID to restore cursor to on return
+	PendingStartupScript   string
 	viewFull             bool
 	panes                []tmux.Pane
 	output               string
@@ -52,6 +53,7 @@ type Model struct {
 	contextPct           map[string]*int
 	navigateToGroup      string
 	InitConductorDocs    bool
+	restoreSessionID     string // session ID to restore cursor to after next Reload
 }
 
 func NewModel(conn *sql.DB, tc tmux.ClientIface, poller *state.Poller) *Model {
@@ -130,6 +132,15 @@ func (m *Model) Reload() error {
 			}
 		}
 	}
+	if m.restoreSessionID != "" {
+		for i, item := range m.items {
+			if item.Kind == "session" && item.Session.ID == m.restoreSessionID {
+				m.cursor = i
+				break
+			}
+		}
+		m.restoreSessionID = ""
+	}
 	if m.cursor >= len(m.items) && len(m.items) > 0 {
 		m.cursor = len(m.items) - 1
 	}
@@ -151,7 +162,8 @@ func (m *Model) Reload() error {
 }
 
 func (m *Model) Items() []ListItem      { return m.items }
-func (m *Model) Cursor() int            { return m.cursor }
+func (m *Model) Cursor() int                      { return m.cursor }
+func (m *Model) SetRestoreSessionID(id string)    { m.restoreSessionID = id }
 func (m *Model) Mode() string           { return m.mode }
 func (m *Model) Panes() []tmux.Pane     { return m.panes }
 func (m *Model) Output() string         { return m.output }
@@ -254,6 +266,7 @@ func (m *Model) updateNavigation(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					break
 				}
 				m.PendingAttach = tmuxName
+				m.PendingAttachSessionID = item.Session.ID
 				if isNew && item.Session.StartupScript != "" {
 					m.PendingStartupScript = item.Session.StartupScript
 				}
@@ -310,7 +323,11 @@ func (m *Model) updateNavigation(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "set-conductor":
 		if m.cursor < len(m.items) && m.items[m.cursor].Kind == "session" {
 			session := m.items[m.cursor].Session
-			if err := db.SetGroupConductor(m.conn, session.GroupPath, session.ID); err != nil {
+			newID := session.ID
+			if m.isConductorSession(session) {
+				newID = ""
+			}
+			if err := db.SetGroupConductor(m.conn, session.GroupPath, newID); err != nil {
 				m.err = err
 				break
 			}

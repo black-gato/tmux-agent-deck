@@ -322,7 +322,6 @@ func (p *Poller) scanConductorReplies(sessions []db.Session) {
 		}
 		out, err := p.tmux.CapturePaneOutput(s.TmuxSession)
 		if err != nil {
-			log.Printf("poller: scan replies capture %q: %v", s.TmuxSession, err)
 			continue
 		}
 		blocks := ParseReplyBlocks(out)
