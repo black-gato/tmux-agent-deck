@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -66,12 +67,12 @@ func deleteRune(value *string, cursor *int) {
 		return
 	}
 	runes := []rune(*value)
-	runes = append(runes[:*cursor-1], runes[*cursor:]...)
+	runes = slices.Delete(runes, *cursor-1, *cursor)
 	*value = string(runes)
 	*cursor--
 }
 
-func moveCursorLeft(value string, cursor int) int {
+func moveCursorLeft(cursor int) int {
 	if cursor > 0 {
 		return cursor - 1
 	}
@@ -331,7 +332,7 @@ func (m *Model) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				f.optIdx = len(f.options) - 1
 			}
 		} else {
-			f.cursor = moveCursorLeft(f.value, f.cursor)
+			f.cursor = moveCursorLeft(f.cursor)
 		}
 		return m, nil
 
