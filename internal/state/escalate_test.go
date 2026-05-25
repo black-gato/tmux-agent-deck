@@ -43,6 +43,63 @@ func TestEscalationMessageIncludesContext(t *testing.T) {
 	}
 }
 
+func TestEscalationMessageCapturesFullLastBlock(t *testing.T) {
+	s := db.Session{ID: "w1", Title: "worker", Status: "waiting"}
+	// Modeled on a real Claude pane: a multi-line answer block (more than the
+	// old 5-line window) followed by the feedback survey, separators, and the
+	// user's typed-but-unsent next prompt. The "❯" prompt uses U+00A0 (NBSP)
+	// after the glyph, exactly as Claude Code renders it.
+	output := strings.Join([]string{
+		"⏺ For Neovim, there's no official Claude Code extension, but a few approaches work well:",
+		"",
+		"  Auto-reload edited buffers",
+		"",
+		"  Add a PostToolUse hook so Neovim reloads files Claude edits.",
+		"",
+		"  Community Plugin",
+		"",
+		"  There's a community plugin claude-code.nvim that wraps the CLI.",
+		"",
+		"  Want me to set up the hooks configuration in your .claude/settings.json?",
+		"",
+		"✻ Churned for 18s",
+		"",
+		"● How is Claude doing this session? (optional)",
+		"  1: Bad    2: Fine   3: Good   0: Dismiss",
+		"",
+		"───────────────────────────────────────",
+		"❯ set up the hooks config in my settings.json",
+		"───────────────────────────────────────",
+		"  anthonymirville@host repo (main) [Sonnet 4.6] ctx:11%",
+		"  -- INSERT -- ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents",
+	}, "\n")
+	msg := state.EscalationMessage(s, output)
+
+	// Must include both the start and end of the answer block.
+	for _, want := range []string{
+		"For Neovim, there's no official Claude Code extension",
+		"Community Plugin",
+		"Want me to set up the hooks configuration",
+	} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("expected answer line %q in message, got: %q", want, msg)
+		}
+	}
+	// Must exclude survey, rating menu, and the user's unsent next prompt.
+	for _, banned := range []string{
+		"How is Claude doing",
+		"1: Bad",
+		"set up the hooks config in my settings.json",
+		"Churned for",
+		"ctx:11%",
+		"bypass permissions",
+	} {
+		if strings.Contains(msg, banned) {
+			t.Errorf("expected %q to be excluded, got: %q", banned, msg)
+		}
+	}
+}
+
 func TestEscalationMessageFiltersClaudeChrome(t *testing.T) {
 	s := db.Session{ID: "w1", Title: "worker", Status: "waiting"}
 	output := strings.Join([]string{

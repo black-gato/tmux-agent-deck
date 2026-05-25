@@ -178,6 +178,7 @@ func (p *Poller) PollOnce() {
 				log.Printf("poller: update status %q: %v", s.ID, err)
 			}
 			if s.Status != tmux.StatusWaiting && newStatus == tmux.StatusWaiting {
+				s.Status = newStatus
 				if p.notifier != nil && p.notifier.Style() == notify.StyleDigest {
 					digestGroups[s.GroupPath] = true
 				} else {

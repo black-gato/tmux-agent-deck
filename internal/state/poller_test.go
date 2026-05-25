@@ -650,6 +650,45 @@ func TestAutoEscalateSendsToConductorOnWaitingTransition(t *testing.T) {
 	}
 }
 
+func TestAutoEscalateReportsWaitingStatus(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	now := time.Now().Unix()
+	db.CreateGroup(conn, db.Group{Path: "work", Name: "work", ConductorSessionID: "conductor"})
+	db.CreateSession(conn, db.Session{
+		ID: "conductor", Title: "conductor", GroupPath: "work", TmuxSession: "tmux-conductor",
+		ProjectPath: "/p", Tool: "claude", Status: "running", CreatedAt: now,
+	})
+	db.CreateSession(conn, db.Session{
+		ID: "worker", Title: "worker", GroupPath: "work", TmuxSession: "tmux-worker",
+		ProjectPath: "/p", Tool: "claude", Status: "running", CreatedAt: now,
+	})
+
+	stub := &stubTmux{
+		outputs: map[string]string{
+			"tmux-conductor": "Thinking about this...\n",
+			"tmux-worker":    "Some output\n> ",
+		},
+		exists: true,
+	}
+	sender := &stubSender{}
+	p := state.New(conn, stub)
+	p.SetSender(sender)
+	p.PollOnce() // running → waiting fires the escalation
+
+	if len(sender.calls) != 2 {
+		t.Fatalf("expected 2 SendKeys calls (vim prefix + message), got %d", len(sender.calls))
+	}
+	msg := sender.calls[1].keys
+	// The escalation fires on the transition into waiting, so it must report the
+	// new status, not the pre-transition "running".
+	if !strings.Contains(msg, "Status: waiting") {
+		t.Errorf("expected escalation to report waiting status, got: %q", msg)
+	}
+	if strings.Contains(msg, "Status: running") {
+		t.Errorf("escalation reported stale running status: %q", msg)
+	}
+}
+
 func TestAutoEscalateFiresOncePerTransition(t *testing.T) {
 	conn := testutil.OpenTestDB(t)
 	now := time.Now().Unix()

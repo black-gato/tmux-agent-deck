@@ -152,7 +152,9 @@ Full roadmap: [docs/superpowers/specs/2026-05-10-roadmap.md](docs/superpowers/sp
 
 Tracked in [docs/bugs.md](docs/bugs.md).
 
-**Open:** BUG-013 — per-session tool flags (`ToolFlags` DB field) are stored and displayed but not passed to the agent process. A `claude-dangerous` preset was added as a workaround for `--dangerously-skip-permissions`. The general free-text flags mechanism is broken; root cause under investigation (see bug doc for details).
+**Open:**
+- BUG-013 — per-session tool flags (`ToolFlags` DB field) are stored and displayed but not passed to the agent process. A `claude-dangerous` preset was added as a workaround for `--dangerously-skip-permissions`. The general free-text flags mechanism is broken; root cause under investigation (see bug doc for details).
+- BUG-021 — hook-handler conductor updates never arrive (only poller escalations land), and `install-hooks` left duplicate `agent-deck` + `tmux-agent-deck` registrations. Suspected: registered binaries open a different `state.db` than the running deck. Root cause not yet confirmed (see bug doc).
 
 Key fixed bugs that shaped the architecture:
 - **BUG-005** — idle detection now tracks actual pane-output changes (`lastOutput` map in poller); `DetectStatus` idle check runs before spinner heuristics.
