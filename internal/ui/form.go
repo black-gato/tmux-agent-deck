@@ -54,33 +54,35 @@ var (
 	formErrStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#f38ba8"))
 )
 
-func insertRune(f *formField, r rune) {
-	runes := []rune(f.value)
-	runes = append(runes[:f.cursor], append([]rune{r}, runes[f.cursor:]...)...)
-	f.value = string(runes)
-	f.cursor++
+func insertRune(value *string, cursor *int, r rune) {
+	runes := []rune(*value)
+	runes = append(runes[:*cursor], append([]rune{r}, runes[*cursor:]...)...)
+	*value = string(runes)
+	*cursor++
 }
 
-func deleteRune(f *formField) {
-	if f.cursor == 0 {
+func deleteRune(value *string, cursor *int) {
+	if *cursor == 0 {
 		return
 	}
-	runes := []rune(f.value)
-	runes = append(runes[:f.cursor-1], runes[f.cursor:]...)
-	f.value = string(runes)
-	f.cursor--
+	runes := []rune(*value)
+	runes = append(runes[:*cursor-1], runes[*cursor:]...)
+	*value = string(runes)
+	*cursor--
 }
 
-func moveCursorLeft(f *formField) {
-	if f.cursor > 0 {
-		f.cursor--
+func moveCursorLeft(value string, cursor int) int {
+	if cursor > 0 {
+		return cursor - 1
 	}
+	return cursor
 }
 
-func moveCursorRight(f *formField) {
-	if f.cursor < len([]rune(f.value)) {
-		f.cursor++
+func moveCursorRight(value string, cursor int) int {
+	if cursor < len([]rune(value)) {
+		return cursor + 1
 	}
+	return cursor
 }
 
 func renderWithCursor(value string, cursor int) string {
@@ -329,7 +331,7 @@ func (m *Model) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				f.optIdx = len(f.options) - 1
 			}
 		} else {
-			moveCursorLeft(f)
+			f.cursor = moveCursorLeft(f.value, f.cursor)
 		}
 		return m, nil
 
@@ -338,14 +340,14 @@ func (m *Model) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if f.kind == fieldSelect {
 			f.optIdx = (f.optIdx + 1) % len(f.options)
 		} else {
-			moveCursorRight(f)
+			f.cursor = moveCursorRight(f.value, f.cursor)
 		}
 		return m, nil
 
 	case tea.KeyBackspace:
 		f := &m.form.fields[m.form.focusField]
 		if f.kind == fieldText {
-			deleteRune(f)
+			deleteRune(&f.value, &f.cursor)
 			if m.form.focusField == 1 {
 				m.resetPathCompletion()
 			}
@@ -369,7 +371,7 @@ func (m *Model) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.resetPathCompletion()
 			m.form.focusField = 2
 		default:
-			insertRune(f, ' ')
+			insertRune(&f.value, &f.cursor, ' ')
 		}
 		return m, nil
 
@@ -377,7 +379,7 @@ func (m *Model) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if len(msg.Runes) == 1 {
 			f := &m.form.fields[m.form.focusField]
 			if f.kind == fieldText {
-				insertRune(f, msg.Runes[0])
+				insertRune(&f.value, &f.cursor, msg.Runes[0])
 				if m.form.focusField == 1 {
 					m.resetPathCompletion()
 				}
