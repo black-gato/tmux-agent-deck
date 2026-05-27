@@ -1,6 +1,8 @@
 package hook_test
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -67,5 +69,28 @@ func TestListStatuses(t *testing.T) {
 	all := hook.ListStatuses(dir)
 	if len(all) != 2 || all["one"].Status != "running" || all["two"].Status != "waiting" {
 		t.Errorf("ListStatuses = %+v", all)
+	}
+}
+
+func TestListStatusesSkipsCorrupt(t *testing.T) {
+	dir := t.TempDir()
+	_ = hook.WriteStatus(dir, "valid", "running", "", "UserPromptSubmit")
+	if err := os.WriteFile(filepath.Join(dir, "corrupt.json"), []byte("{not json}"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	all := hook.ListStatuses(dir)
+	if len(all) != 1 || all["valid"].Status != "running" {
+		t.Errorf("corrupt file should be skipped; got %+v", all)
+	}
+}
+
+func TestWriteStatusRejectsTraversalID(t *testing.T) {
+	dir := t.TempDir()
+	err := hook.WriteStatus(dir, "../escape", "running", "", "UserPromptSubmit")
+	if err != nil {
+		t.Errorf("expected nil error (silent no-op), got %v", err)
+	}
+	if len(hook.ListStatuses(dir)) != 0 {
+		t.Error("expected no file written for traversal instance id")
 	}
 }
