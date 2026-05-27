@@ -67,3 +67,19 @@ func TestParseEvent_InvalidJSON(t *testing.T) {
 		t.Error("expected error for invalid JSON, got nil")
 	}
 }
+
+func TestEventToStatus(t *testing.T) {
+	cases := map[string]string{
+		"SessionStart":     "waiting",
+		"UserPromptSubmit": "running",
+		"Stop":             "waiting",
+		"SessionEnd":       "dead",
+		"PreCompact":       "",
+		"Unknown":          "",
+	}
+	for event, want := range cases {
+		if got := hook.EventToStatus(event); got != want {
+			t.Errorf("EventToStatus(%q) = %q, want %q", event, got, want)
+		}
+	}
+}
