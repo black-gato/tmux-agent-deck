@@ -16,7 +16,7 @@ func EscalationMessage(session db.Session, lastOutput string) string {
 	if session.Notes != "" {
 		parts = append(parts, fmt.Sprintf("Notes: %s", session.Notes))
 	}
-	parts = append(parts, fmt.Sprintf("Reply with: @deck-reply worker=%s ... @deck-end", session.ID))
+	parts = append(parts, fmt.Sprintf("Reply to worker %s using your conductor role reply protocol.", session.ID))
 	ctx := lastClaudeBlock(lastOutput)
 	if len(ctx) == 0 {
 		ctx = contextLines(lastOutput, 5)

@@ -166,6 +166,40 @@ func TestParseReplyBlocksWrappedEndMarker(t *testing.T) {
 	}
 }
 
+func TestParseReplyBlocksIgnoresMidLineMarker(t *testing.T) {
+	// The escalation template echoed back into the conductor's pane previously
+	// contained the literal "Reply with: @deck-reply worker=X ... @deck-end"
+	// substring. The parser must not start a block from mid-line text — only
+	// from lines whose first non-prefix token is @deck-reply.
+	input := "Reply with: @deck-reply worker=abc ... @deck-end"
+	blocks := state.ParseReplyBlocks(input)
+	if len(blocks) != 0 {
+		t.Fatalf("expected 0 blocks for mid-line marker, got %d: %+v", len(blocks), blocks)
+	}
+}
+
+func TestParseReplyBlocksIgnoresEchoedEscalationLine(t *testing.T) {
+	// Full single-line escalation echo as it appears in a conductor pane.
+	input := "❯ Escalation from timer-debug | Worker ID: 6d2199d4 | Status: waiting | Reply with: @deck-reply worker=6d2199d4 ... @deck-end | Context: some context"
+	blocks := state.ParseReplyBlocks(input)
+	if len(blocks) != 0 {
+		t.Fatalf("expected 0 blocks for echoed escalation line, got %d: %+v", len(blocks), blocks)
+	}
+}
+
+func TestParseReplyBlocksClaudeBulletPrefixStillParses(t *testing.T) {
+	// Real conductor replies are rendered with the ⏺ Claude bullet prefix.
+	// The tightened parser must still accept this prefix.
+	input := "⏺ @deck-reply worker=abc\n  hello world\n  @deck-end"
+	blocks := state.ParseReplyBlocks(input)
+	if len(blocks) != 1 {
+		t.Fatalf("expected 1 block, got %d", len(blocks))
+	}
+	if blocks[0].WorkerID != "abc" || blocks[0].Body != "hello world" {
+		t.Errorf("got worker=%q body=%q", blocks[0].WorkerID, blocks[0].Body)
+	}
+}
+
 func TestNewOutputSinceBaseline(t *testing.T) {
 	baseline := "old content"
 	current := "old content\nnew line"

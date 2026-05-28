@@ -1,6 +1,30 @@
 package state
 
-import "strings"
+import (
+	"strings"
+	"unicode"
+)
+
+// trimPromptPrefix strips leading whitespace and known prompt-prefix glyphs
+// (❯, >, ⏺) so the parser can recognize markers at the logical start of a
+// line while still tolerating tmux/TUI chrome. Mid-line occurrences of the
+// markers (e.g. inside an echoed escalation message) are *not* trimmed, so
+// they will not be parsed as the start of a reply block.
+func trimPromptPrefix(line string) string {
+	for {
+		trimmed := strings.TrimLeftFunc(line, unicode.IsSpace)
+		switch {
+		case strings.HasPrefix(trimmed, "❯"):
+			line = strings.TrimPrefix(trimmed, "❯")
+		case strings.HasPrefix(trimmed, ">"):
+			line = strings.TrimPrefix(trimmed, ">")
+		case strings.HasPrefix(trimmed, "⏺"):
+			line = strings.TrimPrefix(trimmed, "⏺")
+		default:
+			return trimmed
+		}
+	}
+}
 
 type ReplyBlock struct {
 	WorkerID string
@@ -15,14 +39,16 @@ func ParseReplyBlocks(output string) []ReplyBlock {
 	lines := strings.Split(output, "\n")
 	i := 0
 	for i < len(lines) {
-		line := strings.TrimSpace(lines[i])
-		// Search anywhere in the line — handles shell/TUI prompt prefixes like ❯
-		idx := strings.Index(line, replyPrefix)
-		if idx < 0 {
+		// Require @deck-reply at the logical start of the line (after stripping
+		// known prompt-prefix glyphs and whitespace). This prevents mid-line
+		// occurrences — such as the echoed "Reply with: @deck-reply …" inside
+		// an escalation message — from being parsed as the start of a block.
+		line := trimPromptPrefix(lines[i])
+		if !strings.HasPrefix(line, replyPrefix) {
 			i++
 			continue
 		}
-		rest := strings.TrimSpace(line[idx+len(replyPrefix):])
+		rest := strings.TrimSpace(line[len(replyPrefix):])
 		if rest == "" {
 			i++
 			continue

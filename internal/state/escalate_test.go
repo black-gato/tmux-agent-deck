@@ -16,14 +16,18 @@ func TestEscalationMessageIncludesWorkerID(t *testing.T) {
 	}
 }
 
-func TestEscalationMessageIncludesReplySyntax(t *testing.T) {
+func TestEscalationMessageOmitsLiteralReplyMarkers(t *testing.T) {
+	// Embedding literal @deck-reply / @deck-end markers in the escalation echoed
+	// them back into the conductor's own pane, where the reply parser then
+	// matched the echo as a phantom reply with body "..." and routed it to the
+	// worker. The message must not contain literal marker substrings.
 	s := db.Session{ID: "worker-42", Title: "my-worker", Status: "waiting"}
 	msg := state.EscalationMessage(s, "")
-	if !strings.Contains(msg, "@deck-reply worker=worker-42") {
-		t.Errorf("message missing reply syntax: %q", msg)
+	if strings.Contains(msg, "@deck-reply") {
+		t.Errorf("message must not contain literal @deck-reply marker: %q", msg)
 	}
-	if !strings.Contains(msg, "@deck-end") {
-		t.Errorf("message missing @deck-end: %q", msg)
+	if strings.Contains(msg, "@deck-end") {
+		t.Errorf("message must not contain literal @deck-end marker: %q", msg)
 	}
 }
 
