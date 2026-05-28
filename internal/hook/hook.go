@@ -34,7 +34,7 @@ func ParseEvent(r io.Reader) (HookEvent, error) {
 
 func EventToStatus(event string) string {
 	switch event {
-	case "SessionStart", "Stop":
+	case "SessionStart", "Stop", "PermissionRequest":
 		return "waiting"
 	case "UserPromptSubmit":
 		return "running"

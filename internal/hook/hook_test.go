@@ -70,12 +70,13 @@ func TestParseEvent_InvalidJSON(t *testing.T) {
 
 func TestEventToStatus(t *testing.T) {
 	cases := map[string]string{
-		"SessionStart":     "waiting",
-		"UserPromptSubmit": "running",
-		"Stop":             "waiting",
-		"SessionEnd":       "dead",
-		"PreCompact":       "",
-		"Unknown":          "",
+		"SessionStart":      "waiting",
+		"UserPromptSubmit":  "running",
+		"Stop":              "waiting",
+		"PermissionRequest": "waiting",
+		"SessionEnd":        "dead",
+		"PreCompact":        "",
+		"Unknown":           "",
 	}
 	for event, want := range cases {
 		if got := hook.EventToStatus(event); got != want {
