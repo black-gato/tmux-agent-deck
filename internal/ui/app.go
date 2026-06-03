@@ -378,6 +378,12 @@ func (m *Model) updateNavigation(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			if err := m.Reload(); err != nil {
 				m.err = err
+				break
+			}
+			if newID != "" && m.InitConductorDocs && session.ProjectPath != "" {
+				if err := conductordocs.WriteMetaConductorBlock(session.ProjectPath); err != nil {
+					m.err = fmt.Errorf("init meta-conductor docs: %w", err)
+				}
 			}
 		}
 	case "edit-tags":

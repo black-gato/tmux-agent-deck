@@ -2912,6 +2912,30 @@ func TestViewShowsMetaConductorTitle(t *testing.T) {
 	}
 }
 
+func TestMetaConductorRowHighlightsWhenWaiting(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	now := time.Now().Unix()
+	if err := db.CreateSession(conn, db.Session{
+		ID: "mc-wait", Title: "waiting-orchestrator", GroupPath: "my-sessions",
+		ProjectPath: "/p", Tool: "claude", Status: "waiting",
+		CreatedAt: now, LastActive: now,
+	}); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if err := db.SetMetaConductorID(conn, "mc-wait"); err != nil {
+		t.Fatalf("set: %v", err)
+	}
+	m := ui.NewModel(conn, nil, nil)
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	m.Reload()
+
+	// status symbol for waiting is ○
+	view := m.View()
+	if !strings.Contains(view, "waiting-orchestrator") {
+		t.Errorf("expected waiting orchestrator title in view")
+	}
+}
+
 func TestFullscreenExitsNewSessionDialog(t *testing.T) {
 	conn := testutil.OpenTestDB(t)
 	fake := testutil.NewFakeTmuxClient()
