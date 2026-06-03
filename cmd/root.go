@@ -157,7 +157,9 @@ func launchTUI(conn *sql.DB, tc tmux.ClientIface) error {
 		m.SetRestoreSessionID(restoreSessionID)
 		restoreSessionID = ""
 		p := tea.NewProgram(m, tea.WithAltScreen())
+		poller.SetRefresh(func() { p.Send(ui.RefreshMsg{}) })
 		finalModel, err := p.Run()
+		poller.SetRefresh(nil)
 		if err != nil {
 			return err
 		}

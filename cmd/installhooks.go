@@ -11,6 +11,7 @@ import (
 )
 
 const deckHookCommand = "tmux-agent-deck hook-handler"
+const legacyHookCommand = "agent-deck hook-handler"
 
 var managedHookEvents = []struct {
 	name  string
@@ -64,7 +65,9 @@ func runInstallHooks(settingsPath string, uninstall bool, out io.Writer) error {
 				fmt.Fprintf(out, "%-20s not registered\n", ev.name)
 			}
 		} else {
+			arr = removeLegacyEntry(arr)
 			if hasOurEntry(arr) {
+				hooks[ev.name] = arr
 				fmt.Fprintf(out, "%-20s already registered\n", ev.name)
 			} else {
 				hooks[ev.name] = append(arr, buildEntry(ev.async))
@@ -168,6 +171,44 @@ func removeOurEntry(arr []any) []any {
 			}
 			if len(remaining) == 0 {
 				continue // group is now empty, drop it
+			}
+			updated := make(map[string]any, len(m))
+			for k, v := range m {
+				updated[k] = v
+			}
+			updated["hooks"] = remaining
+			out = append(out, updated)
+			continue
+		}
+		out = append(out, m)
+	}
+	return out
+}
+
+// removeLegacyEntry strips upstream agent-deck hook-handler entries so install
+// converges to one deck-managed command.
+func removeLegacyEntry(arr []any) []any {
+	var out []any
+	for _, entry := range arr {
+		m, ok := entry.(map[string]any)
+		if !ok {
+			out = append(out, entry)
+			continue
+		}
+		if m["command"] == legacyHookCommand {
+			continue
+		}
+		if hooks, ok := m["hooks"].([]any); ok {
+			var remaining []any
+			for _, h := range hooks {
+				hm, ok := h.(map[string]any)
+				if ok && hm["command"] == legacyHookCommand {
+					continue
+				}
+				remaining = append(remaining, h)
+			}
+			if len(remaining) == 0 {
+				continue
 			}
 			updated := make(map[string]any, len(m))
 			for k, v := range m {

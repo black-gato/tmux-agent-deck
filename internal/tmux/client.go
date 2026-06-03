@@ -14,7 +14,7 @@ const logPrefix = "tmux-agent-deck: "
 
 // ClientIface is the full tmux capability surface used by the app.
 type ClientIface interface {
-	NewSession(name, startDir, tool, toolFlags string) error
+	NewSession(name, startDir, tool, toolFlags, instanceID string) error
 	AttachSession(name string) error
 	KillSession(name string) error
 	SessionExists(name string) (bool, error)
@@ -57,12 +57,19 @@ func buildLaunchCommand(tool, toolFlags string) string {
 	return base + " " + flags
 }
 
-func (c *Client) NewSession(name, startDir, tool, toolFlags string) error {
+func newSessionArgs(name, startDir, tool, toolFlags, instanceID string) []string {
 	args := []string{"new-session", "-d", "-s", name, "-c", startDir}
+	if instanceID != "" {
+		args = append(args, "-e", "AGENTDECK_INSTANCE_ID="+instanceID)
+	}
 	if launch := buildLaunchCommand(tool, toolFlags); launch != "" {
 		args = append(args, launch)
 	}
-	return runCmd("tmux", args...)
+	return args
+}
+
+func (c *Client) NewSession(name, startDir, tool, toolFlags, instanceID string) error {
+	return runCmd("tmux", newSessionArgs(name, startDir, tool, toolFlags, instanceID)...)
 }
 
 func (c *Client) AttachSession(name string) error {

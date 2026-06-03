@@ -89,6 +89,16 @@ This project uses a brainstorm → spec → plan → implement cycle:
 3. **Plan** (`superpowers:writing-plans`) saved to `docs/superpowers/plans/YYYY-MM-DD-<feature>.md`
 4. **Implement** via `superpowers:subagent-driven-development` — one subagent per task, spec + quality review after each
 
+## Spec Repo Sync
+
+The companion spec repo lives at `../tmux-agent-deck-specs/`. It is a flat mirror of the docs in this repo. Keep it in sync whenever you create or update docs here:
+
+- New or updated spec (`docs/superpowers/specs/*.md`) → copy to `../tmux-agent-deck-specs/<filename>`
+- New or updated plan (`docs/superpowers/plans/*.md`) → copy to `../tmux-agent-deck-specs/<filename>`
+- Updates to `docs/bugs.md` → copy to `../tmux-agent-deck-specs/bugs.md`
+
+Use `cp` after writing the file in this repo. The spec repo has no build system — just drop the file.
+
 ## Coding Conventions
 
 - No comments unless the WHY is non-obvious (hidden constraint, subtle invariant, workaround)
@@ -154,9 +164,9 @@ Tracked in [docs/bugs.md](docs/bugs.md).
 
 **Open:**
 - BUG-013 — per-session tool flags (`ToolFlags` DB field) are stored and displayed but not passed to the agent process. A `claude-dangerous` preset was added as a workaround for `--dangerously-skip-permissions`. The general free-text flags mechanism is broken; root cause under investigation (see bug doc for details).
-- BUG-021 — hook-handler conductor updates never arrive (only poller escalations land), and `install-hooks` left duplicate `agent-deck` + `tmux-agent-deck` registrations. Suspected: registered binaries open a different `state.db` than the running deck. Root cause not yet confirmed (see bug doc).
 
 Key fixed bugs that shaped the architecture:
+- **BUG-021** — hook status now uses env-var session identity plus atomic status files; the poller reads fresh hook files, pushes immediate TUI refreshes, and `install-hooks` strips legacy `agent-deck` registrations.
 - **BUG-005** — idle detection now tracks actual pane-output changes (`lastOutput` map in poller); `DetectStatus` idle check runs before spinner heuristics.
 - **BUG-010** — startup `running` flash fixed by seeding `lastChange` from tmux `#{session_activity}` / DB `last_active` instead of `now`.
 

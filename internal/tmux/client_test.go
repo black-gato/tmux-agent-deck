@@ -1,6 +1,9 @@
 package tmux
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestPaneTarget(t *testing.T) {
 	tests := []struct {
@@ -79,11 +82,32 @@ func TestBuildLaunchCommand(t *testing.T) {
 	}
 }
 
+func TestNewSessionArgsIncludesInstanceEnv(t *testing.T) {
+	args := newSessionArgs("sess", "/work", "claude-dangerous", "", "inst-7")
+	joined := strings.Join(args, " ")
+	if !strings.Contains(joined, "-e AGENTDECK_INSTANCE_ID=inst-7") {
+		t.Errorf("missing -e env flag: %v", args)
+	}
+	if !strings.Contains(joined, "claude --dangerously-skip-permissions") {
+		t.Errorf("missing resolved launch command: %v", args)
+	}
+	if strings.Index(joined, "-e") > strings.Index(joined, "claude") {
+		t.Errorf("-e must precede the command: %v", args)
+	}
+}
+
+func TestNewSessionArgsNoInstanceID(t *testing.T) {
+	args := newSessionArgs("sess", "/work", "shell", "", "")
+	if strings.Contains(strings.Join(args, " "), "AGENTDECK_INSTANCE_ID") {
+		t.Errorf("should not set env when instance id is empty: %v", args)
+	}
+}
+
 func TestResolveLaunchCommand(t *testing.T) {
 	tests := []struct {
-		name    string
-		input   string
-		want    string
+		name  string
+		input string
+		want  string
 	}{
 		{
 			name:  "shell profile launches login zsh",

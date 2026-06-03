@@ -178,3 +178,27 @@ func TestInstallHooks_PermissionRequestIsSync(t *testing.T) {
 		}
 	}
 }
+
+func TestRemoveLegacyEntryStripsAgentDeck(t *testing.T) {
+	arr := []any{
+		map[string]any{"hooks": []any{
+			map[string]any{"type": "command", "command": "agent-deck hook-handler"},
+		}},
+	}
+	out := removeLegacyEntry(arr)
+	if len(out) != 0 {
+		t.Errorf("expected legacy agent-deck entry removed, got %v", out)
+	}
+}
+
+func TestRemoveLegacyEntryKeepsOthers(t *testing.T) {
+	arr := []any{
+		map[string]any{"hooks": []any{
+			map[string]any{"type": "command", "command": "some-other-tool"},
+		}},
+	}
+	out := removeLegacyEntry(arr)
+	if len(out) != 1 {
+		t.Errorf("expected unrelated entry kept, got %v", out)
+	}
+}
