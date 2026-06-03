@@ -61,7 +61,8 @@ func migrate(conn *sql.DB) error {
 			startup_script TEXT NOT NULL DEFAULT '',
 			tool_flags     TEXT NOT NULL DEFAULT ''
 		);
-		INSERT OR IGNORE INTO metadata (key, value) VALUES ('schema_version', '6');
+		INSERT OR IGNORE INTO metadata (key, value) VALUES ('schema_version', '7');
+		INSERT OR IGNORE INTO metadata (key, value) VALUES ('meta_conductor_session_id', '');
 		INSERT OR IGNORE INTO groups (path, name) VALUES ('my-sessions', 'my-sessions');
 		INSERT OR IGNORE INTO groups (path, name) VALUES ('archived', 'archived');
 	`)
@@ -119,6 +120,15 @@ func migrate(conn *sql.DB) error {
 			return err
 		}
 		if _, err := conn.Exec(`UPDATE metadata SET value = '6' WHERE key = 'schema_version'`); err != nil {
+			return err
+		}
+		version = "6"
+	}
+	if version == "6" {
+		if _, err := conn.Exec(`INSERT OR IGNORE INTO metadata (key, value) VALUES ('meta_conductor_session_id', '')`); err != nil {
+			return err
+		}
+		if _, err := conn.Exec(`UPDATE metadata SET value = '7' WHERE key = 'schema_version'`); err != nil {
 			return err
 		}
 	}
