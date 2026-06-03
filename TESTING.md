@@ -1,6 +1,6 @@
 # Manual Test Plan — tmux-agent-deck
 
-**Date:** 2026-05-25
+**Date:** 2026-06-03
 **Format:** Steps + expected result. Each case is independent unless marked "requires TC-XXX."
 
 ---
@@ -186,6 +186,66 @@ Conductor designated. Hooks installed (`./tmux-agent-deck install-hooks`).
 | Test | Description |
 |------|-------------|
 | TC-701 | Headless mode polls and exits cleanly |
+
+---
+
+### Fixture K — Meta-conductor, TUI only
+**Setup:** Fresh DB. Launch TUI. Create at least two groups each with at least one session. No tmux sessions need to be running.
+```bash
+rm -f /tmp/tad-test.db
+./tmux-agent-deck add --title "Meta" --group team-alpha --tool claude --project /tmp
+./tmux-agent-deck add --title "Worker A" --group team-alpha --tool claude --project /tmp
+./tmux-agent-deck add --title "Worker B" --group team-beta --tool claude --project /tmp
+./tmux-agent-deck
+```
+
+| Test | Description | Order |
+|------|-------------|-------|
+| TC-801 | Pinned row — unset state | 1st |
+| TC-802 | Set meta-conductor with M | 2nd |
+| TC-803 | Pinned row shows assigned session title | after TC-802 |
+| TC-804 | Toggle meta-conductor off with M | after TC-802 |
+| TC-805 | Pinned row returns to unset state after toggle off | after TC-804 |
+| TC-806 | Meta-conductor slot cleared on session delete | any (creates/deletes a session) |
+| TC-807 | Help overlay includes M binding | any |
+
+---
+
+### Fixture L — Meta-conductor, auto-escalate stack
+**Setup:** Three live tmux sessions: one meta-conductor, one group conductor, one worker. Two sessions in "team-alpha" (conductor + worker), one orphan in "team-beta" (no conductor). Launch with auto-escalate and short poll.
+```bash
+tmux new -d -s meta-session -c /tmp
+tmux new -d -s alpha-conductor -c /tmp
+tmux new -d -s alpha-worker -c /tmp
+tmux new -d -s beta-orphan -c /tmp
+./tmux-agent-deck add --title "Meta" --group team-alpha --tool claude --tmux-session meta-session --project /tmp
+./tmux-agent-deck add --title "Alpha Conductor" --group team-alpha --tool claude --tmux-session alpha-conductor --project /tmp
+./tmux-agent-deck add --title "Alpha Worker" --group team-alpha --tool claude --tmux-session alpha-worker --project /tmp
+./tmux-agent-deck add --title "Beta Orphan" --group team-beta --tool claude --tmux-session beta-orphan --project /tmp
+./tmux-agent-deck --auto-escalate --conductor-heartbeat 15s --poll 2s
+# In TUI: cursor on "Meta", press M to designate as meta-conductor
+# In TUI: cursor on "Alpha Conductor", press c to designate as group conductor for team-alpha
+```
+
+| Test | Description | Order |
+|------|-------------|-------|
+| TC-901 | Meta-conductor amber highlight when waiting | meta session transitions to waiting |
+| TC-902 | Escalation to meta when group has no conductor (team-beta) | beta-orphan transitions to waiting |
+| TC-903 | Escalation to meta when session IS the group conductor | alpha-conductor transitions to waiting |
+| TC-904 | Normal escalation to group conductor (team-alpha worker) | alpha-worker transitions to waiting |
+| TC-905 | Meta-conductor reply routed to worker | after TC-902 or TC-904 |
+| TC-906 | Meta-conductor reply routed to group conductor | after TC-903 |
+| TC-907 | Meta-conductor not escalated to itself | meta-session transitions to waiting |
+| TC-908 | Deck-wide heartbeat sent to meta-conductor | wait for heartbeat interval |
+| TC-909 | --init-conductor-docs writes meta-conductor block on M press | relaunch with flag, press M |
+
+**Teardown:**
+```bash
+tmux kill-session -t meta-session 2>/dev/null
+tmux kill-session -t alpha-conductor 2>/dev/null
+tmux kill-session -t alpha-worker 2>/dev/null
+tmux kill-session -t beta-orphan 2>/dev/null
+```
 
 ---
 
@@ -622,6 +682,146 @@ Conductor designated. Hooks installed (`./tmux-agent-deck install-hooks`).
 3. Wait 2 seconds, kill the process with `ctrl+c`.
 
 **Expected:** Process exits cleanly. DB has updated status for tracked sessions.
+
+---
+
+## 8. Meta-Conductor
+
+### TC-801: Pinned row — unset state
+1. Launch TUI (Fixture K setup).
+2. Observe the line pinned above the sessions list, before the separator.
+
+**Expected:** Pinned row reads `M  — no meta-conductor —` in a dimmed/faint style. The sessions list renders below the separator as normal.
+
+---
+
+### TC-802: Set meta-conductor with M
+1. Fixture K running. Cursor on any session row (e.g. "Meta").
+2. Press `M`.
+
+**Expected:** Pinned row updates immediately to show that session's title. No error or reload flicker beyond a normal re-render.
+
+---
+
+### TC-803: Pinned row shows assigned session title
+1. TC-802 complete.
+2. Observe the pinned row.
+
+**Expected:** Pinned row shows the session's status symbol and title (e.g. `M  —  Meta`). The row is NOT dimmed.
+
+---
+
+### TC-804: Toggle meta-conductor off with M
+1. TC-802 complete. Cursor still on the same session that is the meta-conductor.
+2. Press `M` again.
+
+**Expected:** Pinned row immediately returns to the unset (`— no meta-conductor —`) state.
+
+---
+
+### TC-805: Pinned row returns to unset state after toggle off
+1. TC-804 complete.
+
+**Expected:** Pinned row is dimmed and shows `— no meta-conductor —`. The previously-assigned session row has no meta-conductor indicator.
+
+---
+
+### TC-806: Meta-conductor slot cleared on session delete
+1. Fixture K running. Designate a session as meta-conductor (press `M`). Confirm pinned row shows its title.
+2. With cursor on that same session, press `d` to delete it.
+
+**Expected:** Session is removed from the list AND pinned row reverts to `— no meta-conductor —`. No stale ID remains. Pressing `M` on a different session works correctly afterwards.
+
+---
+
+### TC-807: Help overlay includes M binding
+1. From any TUI state, press `?`.
+
+**Expected:** Help overlay lists the `M` key with description "Set/clear meta-conductor" in the Workflow section.
+
+---
+
+### TC-901: Meta-conductor amber highlight when waiting
+1. Fixture L running. Meta-conductor designated (pinned row shows "Meta").
+2. Allow the meta-session tmux pane to reach its `❯` prompt (waiting state).
+
+**Expected:** Within ~2 poll ticks the pinned row turns amber/orange. The status symbol updates to the waiting indicator.
+
+---
+
+### TC-902: Escalation to meta when group has no conductor (orphan session)
+1. Fixture L running. No conductor assigned to team-beta.
+2. Allow `beta-orphan`'s tmux session to reach `waiting` state.
+
+**Expected:** `meta-session` tmux pane receives an escalation message beginning with "Escalation from ..." that includes beta-orphan's title and session ID. No error in stderr.
+
+---
+
+### TC-903: Escalation to meta when session IS the group conductor
+1. Fixture L running. Alpha Conductor designated as group conductor.
+2. Allow `alpha-conductor` tmux pane to reach `waiting` state.
+
+**Expected:** `meta-session` pane receives an escalation from "Alpha Conductor". The group conductor is NOT escalated to itself.
+
+---
+
+### TC-904: Normal escalation to group conductor (group-alpha worker)
+1. Fixture L running. Alpha Conductor designated for team-alpha. Meta-conductor designated.
+2. Allow `alpha-worker` pane to reach `waiting` state.
+
+**Expected:** `alpha-conductor` pane receives the escalation (not meta). Meta pane does NOT receive a duplicate.
+
+---
+
+### TC-905: Meta-conductor reply routed to worker
+1. TC-902 complete. `meta-session` pane has escalation for beta-orphan.
+2. In `meta-session` pane type:
+   ```
+   @deck-reply worker=<beta-orphan-session-id>
+   Here is how to unblock yourself
+   @deck-end
+   ```
+3. Wait one poll tick.
+
+**Expected:** `beta-orphan` pane receives the reply body typed into it.
+
+---
+
+### TC-906: Meta-conductor reply routed to group conductor
+1. TC-903 complete. `meta-session` has escalation for alpha-conductor.
+2. In `meta-session` pane type:
+   ```
+   @deck-reply worker=<alpha-conductor-session-id>
+   Try delegating to a worker instead
+   @deck-end
+   ```
+3. Wait one poll tick.
+
+**Expected:** `alpha-conductor` pane receives the reply. Reply is NOT re-sent on subsequent ticks (TC-506 dedup applies here too).
+
+---
+
+### TC-907: Meta-conductor not escalated to itself
+1. Fixture L running. `meta-session` transitions to `waiting`.
+
+**Expected:** No escalation is sent to `meta-session` from itself. No error in stderr. The pinned row turns amber but nothing is typed into the meta pane automatically.
+
+---
+
+### TC-908: Deck-wide heartbeat sent to meta-conductor
+1. Fixture L running with `--conductor-heartbeat 15s`. All sessions active.
+2. Wait 15 seconds.
+
+**Expected:** `meta-session` pane receives a heartbeat message that lists group conductors and conductor-less sessions. Message includes session titles and counts (e.g. `Deck heartbeat | N groups | M conductor-less sessions`).
+
+---
+
+### TC-909: --init-conductor-docs writes meta-conductor block on M press
+1. One session with `ProjectPath` set to a writable directory.
+2. Launch with `./tmux-agent-deck --init-conductor-docs`.
+3. Cursor on that session. Press `M` to designate it as meta-conductor.
+
+**Expected:** `<ProjectPath>/CLAUDE.md` is created (or updated) with a block between `<!-- tmux-agent-deck:meta-conductor-role:start -->` and `<!-- tmux-agent-deck:meta-conductor-role:end -->` markers. Block describes the meta-conductor role, heartbeat handling, and `@deck-reply` protocol. Any pre-existing content outside the markers is preserved. Pressing `M` a second time (toggle off) does NOT remove or re-write the block.
 
 ---
 
