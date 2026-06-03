@@ -6,10 +6,18 @@ import (
 	"time"
 
 	"github.com/black-gato/tmux-agent-deck/internal/db"
+	"github.com/black-gato/tmux-agent-deck/internal/hook"
 	"github.com/black-gato/tmux-agent-deck/internal/notify"
 	"github.com/black-gato/tmux-agent-deck/internal/state"
 	"github.com/black-gato/tmux-agent-deck/internal/testutil"
 )
+
+func must(t *testing.T, err error) {
+	t.Helper()
+	if err != nil {
+		t.Fatal(err)
+	}
+}
 
 type stubTmux struct {
 	output     string
@@ -81,6 +89,99 @@ func TestPollerMarksErrorWhenSessionGone(t *testing.T) {
 	s, _ := db.GetSession(conn, "s2")
 	if s.Status != "error" {
 		t.Errorf("status: got %q want error", s.Status)
+	}
+}
+
+func TestPollHooksOnceUpdatesStatus(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	must(t, db.CreateSession(conn, db.Session{ID: "inst-1", Title: "w", TmuxSession: "tmux-1", Tool: "claude", Status: "running"}))
+
+	hooksDir := t.TempDir()
+	must(t, hook.WriteStatus(hooksDir, "inst-1", "waiting", "", "Stop"))
+
+	tc := testutil.NewFakeTmuxClient()
+	p := state.NewWithClockInterval(conn, tc, nil, time.Now, time.Second)
+	p.SetHooksDir(hooksDir)
+
+	changed := p.PollHooksOnce()
+	if !changed {
+		t.Fatal("expected PollHooksOnce to report a change")
+	}
+	s, _ := db.GetSession(conn, "inst-1")
+	if s.Status != "waiting" {
+		t.Errorf("status = %q, want waiting", s.Status)
+	}
+}
+
+func TestPollHooksOnceStaleIgnored(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	must(t, db.CreateSession(conn, db.Session{ID: "inst-1", TmuxSession: "tmux-1", Tool: "claude", Status: "running"}))
+
+	hooksDir := t.TempDir()
+	must(t, hook.WriteStatus(hooksDir, "inst-1", "waiting", "", "Stop"))
+
+	tc := testutil.NewFakeTmuxClient()
+	p := state.NewWithClockInterval(conn, tc, nil, func() time.Time { return time.Now().Add(3 * time.Minute) }, time.Second)
+	p.SetHooksDir(hooksDir)
+
+	p.PollHooksOnce()
+	s, _ := db.GetSession(conn, "inst-1")
+	if s.Status != "running" {
+		t.Errorf("stale hook should not change status; got %q", s.Status)
+	}
+}
+
+func TestPollOnceFreshHookOverridesPaneScrape(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	must(t, db.CreateSession(conn, db.Session{ID: "inst-1", TmuxSession: "tmux-1", Tool: "claude", Status: "running"}))
+
+	hooksDir := t.TempDir()
+	must(t, hook.WriteStatus(hooksDir, "inst-1", "waiting", "", "Stop"))
+
+	tc := testutil.NewFakeTmuxClient()
+	tc.Sessions["tmux-1"] = "Thinking hard..."
+	tc.Activities["tmux-1"] = time.Now()
+
+	p := state.NewWithClockInterval(conn, tc, nil, time.Now, time.Second)
+	p.SetHooksDir(hooksDir)
+
+	p.PollHooksOnce()
+	p.PollOnce()
+
+	s, _ := db.GetSession(conn, "inst-1")
+	if s.Status != "waiting" {
+		t.Errorf("fresh hook should win over pane scrape; got %q", s.Status)
+	}
+}
+
+func TestPollOnceHookWaitingEdgeNotifiesOnce(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	must(t, db.CreateSession(conn, db.Session{
+		ID:          "inst-1",
+		Title:       "worker",
+		GroupPath:   "my-sessions",
+		TmuxSession: "tmux-1",
+		Tool:        "claude",
+		Status:      "running",
+	}))
+
+	hooksDir := t.TempDir()
+	must(t, hook.WriteStatus(hooksDir, "inst-1", "waiting", "", "Stop"))
+
+	tc := testutil.NewFakeTmuxClient()
+	tc.Sessions["tmux-1"] = "Thinking hard..."
+	tc.Activities["tmux-1"] = time.Now()
+	notifier := &recordingNotifier{enabled: true, style: notify.StyleWaiting}
+
+	p := state.NewWithClockInterval(conn, tc, notifier, time.Now, time.Second)
+	p.SetHooksDir(hooksDir)
+
+	p.PollHooksOnce()
+	p.PollOnce()
+	p.PollOnce()
+
+	if len(notifier.calls) != 1 {
+		t.Fatalf("expected 1 hook waiting notification, got %d", len(notifier.calls))
 	}
 }
 
@@ -1058,5 +1159,156 @@ func TestReplyRoutingSkipsStoppedWorker(t *testing.T) {
 	}
 	if replyCalls != 0 {
 		t.Errorf("expected 0 reply calls for stopped worker, got %d", replyCalls)
+	}
+}
+
+// Issue #10: escalation fallthrough to meta-conductor
+
+func TestAutoEscalateToMetaConductorWhenNoGroupConductor(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	now := time.Now().Unix()
+	db.CreateSession(conn, db.Session{
+		ID: "meta", Title: "meta", GroupPath: "my-sessions", TmuxSession: "tmux-meta",
+		ProjectPath: "/p", Tool: "claude", Status: "running", CreatedAt: now,
+	})
+	db.SetMetaConductorID(conn, "meta")
+	db.CreateSession(conn, db.Session{
+		ID: "worker", Title: "worker", GroupPath: "my-sessions", TmuxSession: "tmux-worker",
+		ProjectPath: "/p", Tool: "claude", Status: "running", CreatedAt: now,
+	})
+	stub := &stubTmux{
+		outputs: map[string]string{
+			"tmux-meta":   "Thinking...\n",
+			"tmux-worker": "❯ ",
+		},
+		exists: true,
+	}
+	sender := &stubSender{}
+	p := state.New(conn, stub)
+	p.SetSender(sender)
+	p.PollOnce()
+
+	var metaCalls int
+	for _, c := range sender.calls {
+		if c.session == "tmux-meta" && strings.Contains(c.keys, "Escalation from worker") {
+			metaCalls++
+		}
+	}
+	if metaCalls == 0 {
+		t.Errorf("expected escalation to meta-conductor, got calls: %+v", sender.calls)
+	}
+}
+
+func TestAutoEscalateGroupConductorToMeta(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	now := time.Now().Unix()
+	db.CreateGroup(conn, db.Group{Path: "work", Name: "work", ConductorSessionID: "group-conductor"})
+	db.CreateSession(conn, db.Session{
+		ID: "meta", Title: "meta", GroupPath: "my-sessions", TmuxSession: "tmux-meta",
+		ProjectPath: "/p", Tool: "claude", Status: "running", CreatedAt: now,
+	})
+	db.SetMetaConductorID(conn, "meta")
+	db.CreateSession(conn, db.Session{
+		ID: "group-conductor", Title: "group-conductor", GroupPath: "work", TmuxSession: "tmux-gc",
+		ProjectPath: "/p", Tool: "claude", Status: "running", CreatedAt: now,
+	})
+	stub := &stubTmux{
+		outputs: map[string]string{
+			"tmux-meta": "Thinking...\n",
+			"tmux-gc":   "❯ ", // group-conductor itself is waiting
+		},
+		exists: true,
+	}
+	sender := &stubSender{}
+	p := state.New(conn, stub)
+	p.SetSender(sender)
+	p.PollOnce()
+
+	var metaCalls int
+	for _, c := range sender.calls {
+		if c.session == "tmux-meta" && strings.Contains(c.keys, "Escalation from group-conductor") {
+			metaCalls++
+		}
+	}
+	if metaCalls == 0 {
+		t.Errorf("expected group-conductor to escalate to meta, got calls: %+v", sender.calls)
+	}
+}
+
+// Issue #11: reply routing via meta-conductor
+
+func TestMetaConductorReplyRoutedToWorker(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	now := time.Now().Unix()
+	db.CreateSession(conn, db.Session{
+		ID: "meta", Title: "meta", GroupPath: "my-sessions", TmuxSession: "tmux-meta",
+		ProjectPath: "/p", Tool: "claude", Status: "running", CreatedAt: now,
+	})
+	db.SetMetaConductorID(conn, "meta")
+	db.CreateSession(conn, db.Session{
+		ID: "worker-1", Title: "worker-1", GroupPath: "my-sessions", TmuxSession: "tmux-worker",
+		ProjectPath: "/p", Tool: "claude", Status: "waiting", CreatedAt: now,
+	})
+	baseOutput := "Thinking...\n"
+	stub := &stubTmux{
+		outputs: map[string]string{"tmux-meta": baseOutput, "tmux-worker": "❯ "},
+		exists:  true,
+	}
+	sender := &stubSender{}
+	p := state.New(conn, stub)
+	p.SetSender(sender)
+	p.PollOnce() // seed seen blocks
+
+	stub.outputs["tmux-meta"] = baseOutput + "\n@deck-reply worker=worker-1\nhere is my reply\n@deck-end"
+	p.PollOnce()
+
+	var replyCalls int
+	for _, c := range sender.calls {
+		if c.session == "tmux-worker" && strings.Contains(c.keys, "here is my reply") {
+			replyCalls++
+		}
+	}
+	if replyCalls == 0 {
+		t.Errorf("expected meta-conductor reply to be routed to worker, got calls: %+v", sender.calls)
+	}
+}
+
+// Issue #12: deck-wide meta-conductor heartbeat
+
+func TestMetaConductorHeartbeatFired(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	start := time.Now()
+	now := start.Unix()
+	db.CreateSession(conn, db.Session{
+		ID: "meta", Title: "meta", GroupPath: "my-sessions", TmuxSession: "tmux-meta",
+		ProjectPath: "/p", Tool: "claude", Status: "running", CreatedAt: now,
+	})
+	db.SetMetaConductorID(conn, "meta")
+	db.CreateGroup(conn, db.Group{Path: "work", Name: "work", ConductorSessionID: "gc"})
+	db.CreateSession(conn, db.Session{
+		ID: "gc", Title: "gc", GroupPath: "work", TmuxSession: "tmux-gc",
+		ProjectPath: "/p", Tool: "claude", Status: "running", CreatedAt: now,
+	})
+
+	tick := start
+	stub := &stubTmux{output: "Thinking...\n", exists: true}
+	sender := &stubSender{}
+	p := state.NewWithClock(conn, stub, nil, func() time.Time { return tick })
+	p.SetSender(sender)
+	p.SetConductorHeartbeat(5 * time.Minute)
+
+	p.PollOnce() // t=0, seed
+
+	tick = start.Add(6 * time.Minute)
+	p.PollOnce() // t=6m, heartbeat fires
+
+	var metaHeartbeatCalls int
+	for _, c := range sender.calls {
+		if c.session == "tmux-meta" && strings.Contains(c.keys, "Deck heartbeat") {
+			metaHeartbeatCalls++
+		}
+	}
+	if metaHeartbeatCalls == 0 {
+		t.Errorf("expected deck heartbeat to meta-conductor, got calls: %+v", sender.calls)
 	}
 }
