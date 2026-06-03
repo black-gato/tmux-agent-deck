@@ -17,43 +17,50 @@ import (
 
 type tickMsg struct{}
 
+// RefreshMsg triggers an immediate Reload without rescheduling the periodic
+// tick. The hook poller sends this for sub-second status updates.
+type RefreshMsg struct{}
+
 var (
-	headerWaitingStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("214")) // amber
-	headerErrorStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("196")) // red
-	headerOverdueStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("196"))
+	headerWaitingStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("214")) // amber
+	headerErrorStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("196")) // red
+	headerOverdueStyle      = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("196"))
+	metaConductorDimStyle   = lipgloss.NewStyle().Faint(true)
+	metaConductorAmberStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
 )
 
 type Model struct {
-	conn                 *sql.DB
-	tmuxC                tmux.ClientIface
-	poller               *state.Poller
-	groups               []db.Group
-	sessions             []db.Session
-	items                []ListItem
-	cursor               int
-	width                int
-	height               int
-	mode                 string // "", "new-session", "new-group", "rename", "move"
-	dialog               dialogState
-	form                 formState
-	imp                  importState
-	err                  error
+	conn                   *sql.DB
+	tmuxC                  tmux.ClientIface
+	poller                 *state.Poller
+	groups                 []db.Group
+	sessions               []db.Session
+	items                  []ListItem
+	cursor                 int
+	width                  int
+	height                 int
+	mode                   string // "", "new-session", "new-group", "rename", "move"
+	dialog                 dialogState
+	form                   formState
+	imp                    importState
+	err                    error
 	PendingAttach          string // tmux session name to attach after TUI exits
 	PendingAttachSessionID string // deck session ID to restore cursor to on return
 	PendingStartupScript   string
-	viewFull             bool
-	panes                []tmux.Pane
-	output               string
-	activePaneIdx        int
-	waitingSince         map[string]time.Time
-	overdueWaiting       int
-	selected             map[string]bool
-	showArchived         bool
-	searchQuery          string
-	contextPct           map[string]*int
-	navigateToGroup      string
-	InitConductorDocs    bool
-	restoreSessionID     string // session ID to restore cursor to after next Reload
+	viewFull               bool
+	panes                  []tmux.Pane
+	output                 string
+	activePaneIdx          int
+	waitingSince           map[string]time.Time
+	overdueWaiting         int
+	selected               map[string]bool
+	showArchived           bool
+	searchQuery            string
+	contextPct             map[string]*int
+	navigateToGroup        string
+	InitConductorDocs      bool
+	restoreSessionID       string // session ID to restore cursor to after next Reload
+	metaConductor          *db.Session
 }
 
 func NewModel(conn *sql.DB, tc tmux.ClientIface, poller *state.Poller) *Model {
@@ -95,6 +102,11 @@ func (m *Model) Reload() error {
 	}
 	m.groups = groups
 	m.sessions = sessions
+	if mc, err := db.GetMetaConductorSession(m.conn); err == nil {
+		m.metaConductor = &mc
+	} else {
+		m.metaConductor = nil
+	}
 	visibleSessions := m.visibleSessions(sessions)
 	m.items = BuildTree(m.visibleGroups(groups, visibleSessions), visibleSessions)
 	m.pruneSelection()
@@ -161,18 +173,19 @@ func (m *Model) Reload() error {
 	return nil
 }
 
-func (m *Model) Items() []ListItem      { return m.items }
-func (m *Model) Cursor() int                      { return m.cursor }
-func (m *Model) SetRestoreSessionID(id string)    { m.restoreSessionID = id }
-func (m *Model) Mode() string           { return m.mode }
-func (m *Model) Panes() []tmux.Pane     { return m.panes }
-func (m *Model) Output() string         { return m.output }
-func (m *Model) ViewFull() bool         { return m.viewFull }
-func (m *Model) ActivePaneIdx() int     { return m.activePaneIdx }
-func (m *Model) OverdueWaiting() int    { return m.overdueWaiting }
-func (m *Model) SelectedCount() int     { return len(m.selected) }
-func (m *Model) FormFocusField() int    { return m.form.focusField }
-func (m *Model) FormErr() string        { return m.form.formErr }
+func (m *Model) Items() []ListItem             { return m.items }
+func (m *Model) Cursor() int                   { return m.cursor }
+func (m *Model) SetRestoreSessionID(id string) { m.restoreSessionID = id }
+func (m *Model) Mode() string                  { return m.mode }
+func (m *Model) Panes() []tmux.Pane            { return m.panes }
+func (m *Model) MetaConductor() *db.Session    { return m.metaConductor }
+func (m *Model) Output() string                { return m.output }
+func (m *Model) ViewFull() bool                { return m.viewFull }
+func (m *Model) ActivePaneIdx() int            { return m.activePaneIdx }
+func (m *Model) OverdueWaiting() int           { return m.overdueWaiting }
+func (m *Model) SelectedCount() int            { return len(m.selected) }
+func (m *Model) FormFocusField() int           { return m.form.focusField }
+func (m *Model) FormErr() string               { return m.form.formErr }
 func (m *Model) ImportCandidates() []string {
 	out := make([]string, 0, len(m.imp.candidates))
 	for _, c := range m.imp.candidates {
@@ -183,8 +196,8 @@ func (m *Model) ImportCandidates() []string {
 func (m *Model) ImportFormTitle() string { return m.imp.title }
 func (m *Model) ImportFormGroup() string { return m.imp.group }
 func (m *Model) ImportFormErr() string   { return m.imp.formErr }
-func (m *Model) DialogVimMode() bool    { return m.dialog.vimMode }
-func (m *Model) DialogValue() string    { return m.dialog.value }
+func (m *Model) DialogVimMode() bool     { return m.dialog.vimMode }
+func (m *Model) DialogValue() string     { return m.dialog.value }
 
 func (m *Model) Init() tea.Cmd {
 	if err := m.Reload(); err != nil {
@@ -200,6 +213,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.err = err
 		}
 		return m, tick()
+	case RefreshMsg:
+		if err := m.Reload(); err != nil {
+			m.err = err
+		}
+		return m, nil
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
@@ -347,6 +365,21 @@ func (m *Model) updateNavigation(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if err := m.escalateSelectedSession(); err != nil {
 			m.err = err
 		}
+	case "set-meta-conductor":
+		if m.cursor < len(m.items) && m.items[m.cursor].Kind == "session" {
+			session := m.items[m.cursor].Session
+			newID := session.ID
+			if m.metaConductor != nil && m.metaConductor.ID == session.ID {
+				newID = ""
+			}
+			if err := db.SetMetaConductorID(m.conn, newID); err != nil {
+				m.err = err
+				break
+			}
+			if err := m.Reload(); err != nil {
+				m.err = err
+			}
+		}
 	case "edit-tags":
 		if m.cursor < len(m.items) && m.items[m.cursor].Kind == "session" {
 			m.mode = "edit-tags"
@@ -454,7 +487,13 @@ func (m *Model) View() string {
 		return header + "\n" + sep + "\n" + detail + "\n" + footer
 	}
 
-	leftContent := RenderList(m.items, m.cursor, leftW, contentH)
+	metaRow := m.renderMetaConductorRow(leftW)
+	metaSep := strings.Repeat("─", leftW)
+	listH := contentH - 2
+	if listH < 1 {
+		listH = 1
+	}
+	leftContent := metaRow + "\n" + metaSep + "\n" + RenderList(m.items, m.cursor, leftW, listH)
 	var rightContent string
 	if m.mode != "" && m.mode != "edit-notes" {
 		rightContent = m.renderDialog()
@@ -480,6 +519,21 @@ func (m *Model) View() string {
 	}
 
 	return header + "\n" + sep + "\n" + strings.Join(bodyLines, "\n") + "\n" + footer
+}
+
+func (m *Model) renderMetaConductorRow(width int) string {
+	if m.metaConductor == nil {
+		return metaConductorDimStyle.Render(truncate(" M  — no meta-conductor —", width))
+	}
+	sym := statusSymbol[m.metaConductor.Status]
+	if sym == "" {
+		sym = "—"
+	}
+	row := truncate(" M  "+sym+"  "+m.metaConductor.Title, width)
+	if m.metaConductor.Status == tmux.StatusWaiting {
+		return metaConductorAmberStyle.Render(row)
+	}
+	return row
 }
 
 func (m *Model) renderAppHeader() string {
@@ -990,7 +1044,7 @@ func (m *Model) ensureStarted(s *db.Session) (string, bool, error) {
 		}
 	}
 	tmuxName := fmt.Sprintf("tma-%s-%s", slugifySessionTitle(s.Title), sessionIDSuffix(s.ID))
-	if err := m.tmuxC.NewSession(tmuxName, s.ProjectPath, s.Tool, s.ToolFlags); err != nil {
+	if err := m.tmuxC.NewSession(tmuxName, s.ProjectPath, s.Tool, s.ToolFlags, s.ID); err != nil {
 		return "", false, fmt.Errorf("start session: %w", err)
 	}
 	_ = db.UpdateSessionTmuxName(m.conn, s.ID, tmuxName)

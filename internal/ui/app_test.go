@@ -27,6 +27,15 @@ func TestModelInitializesWithGroups(t *testing.T) {
 	}
 }
 
+func TestUpdateHandlesRefreshMsg(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	m := ui.NewModel(conn, testutil.NewFakeTmuxClient(), nil)
+	got, _ := m.Update(ui.RefreshMsg{})
+	if got == nil {
+		t.Fatal("Update(RefreshMsg) returned nil model")
+	}
+}
+
 func TestModelNavigateDown(t *testing.T) {
 	conn := testutil.OpenTestDB(t)
 	db.CreateGroup(conn, db.Group{Path: "work", Name: "work", Expanded: true})
@@ -189,7 +198,7 @@ func TestNewSessionPathTabCompletesSingleMatch(t *testing.T) {
 	for _, r := range "/Pro" {
 		m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
 	}
-	m.Update(tea.KeyMsg{Type: tea.KeyTab}) // complete to ProjectAlpha/
+	m.Update(tea.KeyMsg{Type: tea.KeyTab})   // complete to ProjectAlpha/
 	m.Update(tea.KeyMsg{Type: tea.KeyEnter}) // commit form
 
 	sessions, err := db.ListSessions(conn)
@@ -2806,6 +2815,100 @@ func TestNewSessionFormDownUpNavigatesFields(t *testing.T) {
 	m.Update(tea.KeyMsg{Type: tea.KeyUp})
 	if m.FormFocusField() != 0 {
 		t.Errorf("up should clamp at 0, got %d", m.FormFocusField())
+	}
+}
+
+func TestSetMetaConductorAssignsSession(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	now := time.Now().Unix()
+	if err := db.CreateSession(conn, db.Session{
+		ID: "mc-001", Title: "the-conductor", GroupPath: "my-sessions",
+		ProjectPath: "/p", Tool: "claude", Status: "running",
+		CreatedAt: now, LastActive: now,
+	}); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	m := ui.NewModel(conn, nil, nil)
+	m.Reload()
+
+	// navigate to the session
+	for i, item := range m.Items() {
+		if item.Kind == "session" && item.Session.ID == "mc-001" {
+			for m.Cursor() < i {
+				m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+			}
+			break
+		}
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'M'}})
+	if m.MetaConductor() == nil {
+		t.Fatal("expected meta-conductor to be set")
+	}
+	if m.MetaConductor().ID != "mc-001" {
+		t.Errorf("meta-conductor id: got %q want mc-001", m.MetaConductor().ID)
+	}
+}
+
+func TestSetMetaConductorTogglesOff(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	now := time.Now().Unix()
+	if err := db.CreateSession(conn, db.Session{
+		ID: "mc-002", Title: "the-conductor", GroupPath: "my-sessions",
+		ProjectPath: "/p", Tool: "claude", Status: "running",
+		CreatedAt: now, LastActive: now,
+	}); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	m := ui.NewModel(conn, nil, nil)
+	m.Reload()
+
+	for i, item := range m.Items() {
+		if item.Kind == "session" && item.Session.ID == "mc-002" {
+			for m.Cursor() < i {
+				m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+			}
+			break
+		}
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'M'}}) // set
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'M'}}) // clear
+	if m.MetaConductor() != nil {
+		t.Errorf("expected meta-conductor to be cleared, got %q", m.MetaConductor().ID)
+	}
+}
+
+func TestViewContainsMetaConductorRow(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	m := ui.NewModel(conn, nil, nil)
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	m.Reload()
+
+	view := m.View()
+	if !strings.Contains(view, "no meta-conductor") {
+		t.Errorf("expected 'no meta-conductor' placeholder in view")
+	}
+}
+
+func TestViewShowsMetaConductorTitle(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	now := time.Now().Unix()
+	if err := db.CreateSession(conn, db.Session{
+		ID: "mc-003", Title: "my-orchestrator", GroupPath: "my-sessions",
+		ProjectPath: "/p", Tool: "claude", Status: "running",
+		CreatedAt: now, LastActive: now,
+	}); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if err := db.SetMetaConductorID(conn, "mc-003"); err != nil {
+		t.Fatalf("set: %v", err)
+	}
+	m := ui.NewModel(conn, nil, nil)
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	m.Reload()
+
+	view := m.View()
+	if !strings.Contains(view, "my-orchestrator") {
+		t.Errorf("expected 'my-orchestrator' in view, got:\n%s", view)
 	}
 }
 

@@ -29,6 +29,7 @@ var KeyBindings = []KeyBinding{
 	{Section: "Workflow", Rune: 'b', Key: "b", Description: "Broadcast", Action: "broadcast"},
 	{Section: "Workflow", Rune: 'c', Key: "c", Description: "Toggle conductor", Action: "set-conductor"},
 	{Section: "Workflow", Rune: 'C', Key: "C", Description: "Escalate to conductor", Action: "escalate-conductor"},
+	{Section: "Workflow", Rune: 'M', Key: "M", Description: "Set/clear meta-conductor", Action: "set-meta-conductor"},
 	{Section: "View", Rune: 'v', Key: "v", Description: "Toggle full output", Action: "toggle-full"},
 	{Section: "View", Rune: 'a', Key: "a", Description: "Archive", Action: "archive"},
 	{Section: "View", Rune: 'A', Key: "A", Description: "Toggle archived", Action: "toggle-archived"},
