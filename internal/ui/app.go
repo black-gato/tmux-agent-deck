@@ -874,6 +874,9 @@ func (m *Model) deleteSelectedSessions() error {
 				return err
 			}
 		}
+		if m.metaConductor != nil && m.metaConductor.ID == item.Session.ID {
+			_ = db.SetMetaConductorID(m.conn, "")
+		}
 	}
 	if err := db.DeleteSessions(m.conn, ids); err != nil {
 		return err
@@ -887,6 +890,9 @@ func (m *Model) deleteSession(session *db.Session) error {
 		if err := m.tmuxC.KillSession(session.TmuxSession); err != nil {
 			return err
 		}
+	}
+	if m.metaConductor != nil && m.metaConductor.ID == session.ID {
+		_ = db.SetMetaConductorID(m.conn, "")
 	}
 	return db.DeleteSession(m.conn, session.ID)
 }

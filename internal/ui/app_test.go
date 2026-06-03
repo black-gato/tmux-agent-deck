@@ -2912,6 +2912,38 @@ func TestViewShowsMetaConductorTitle(t *testing.T) {
 	}
 }
 
+func TestDeleteSessionClearsMetaConductorSlot(t *testing.T) {
+	conn := testutil.OpenTestDB(t)
+	now := time.Now().Unix()
+	if err := db.CreateSession(conn, db.Session{
+		ID: "mc-del", Title: "to-delete", GroupPath: "my-sessions",
+		ProjectPath: "/p", Tool: "claude", Status: "stopped",
+		CreatedAt: now, LastActive: now,
+	}); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if err := db.SetMetaConductorID(conn, "mc-del"); err != nil {
+		t.Fatalf("set meta conductor: %v", err)
+	}
+	m := ui.NewModel(conn, testutil.NewFakeTmuxClient(), nil)
+	m.Reload()
+
+	for i, item := range m.Items() {
+		if item.Kind == "session" && item.Session.ID == "mc-del" {
+			for m.Cursor() < i {
+				m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+			}
+			break
+		}
+	}
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
+	m.Reload()
+
+	if m.MetaConductor() != nil {
+		t.Errorf("expected meta-conductor to be cleared after session delete, got %q", m.MetaConductor().ID)
+	}
+}
+
 func TestMetaConductorRowHighlightsWhenWaiting(t *testing.T) {
 	conn := testutil.OpenTestDB(t)
 	now := time.Now().Unix()
